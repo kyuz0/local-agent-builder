@@ -1,0 +1,9 @@
+agent-framework
+python-dotenv
+httpx
+textual
+beautifulsoup4
+PyYAML
+pyfiglet
+ddgs
+markitdown[all]
