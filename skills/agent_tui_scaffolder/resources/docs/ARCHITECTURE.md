@@ -2,8 +2,21 @@
 
 When designing a new local agent, you must actively collaborate with the user to determine the best architecture. **Do not assume an architecture.** Instead, ask the user questions and offer the following options to align on the right approach based on their task's complexity, context needs, and required tools:
 
+> [!IMPORTANT]
+> Once an architecture is carefully chosen, you **MUST** read [`PROMPTING.md`](./PROMPTING.md) for strict guidelines on crafting system instructions and formatting prompt engineering patterns for local models.
+
 ## 1. The Flat Agent (Simple Tasks)
 **Guidance: Propose this for straightforward tasks that require minimal context.**
+
+```text
++-----------------------+
+|         Agent         |
+|-----------------------|
+| - Tool 1              |
+| - Tool 2              |
++-----------------------+
+```
+
 A single "flat" agent loop is fast and viable when dealing with known boundaries—like calculating math formulas, formatting structured text, or basic conversational retrieval.
 
 ```python
@@ -30,66 +43,56 @@ def run_flat_agent():
 ## 2. Tool-Delegation Sub-Agents (Complex Extraction)
 **Guidance: Propose this when a task involves consuming large context, reading heavy files, or performing highly specialized workflows.**
 
-**Paradigm: Context Weight Management**
-While your Orchestrator can absolutely retain a comprehensive set of baseline tools (like native file reading or baseline web searching), passing heavily data-intensive operations to a Sub-Agent is the best way to prevent the Orchestrator from suffering "context rot."
-
-For example, performing a massive, multi-page deep web search or grepping thousands of log lines will dump tens of thousands of tokens into the active generation block. By offloading this explicit task into a `delegate_file_analysis` or `delegate_web_research` proxy tool, the Sub-Agent absorbs the massive context payload and simply returns a compressed semantic summary to the Orchestrator. This "divide and conquer" technique is critical for keeping local LLMs responsive.
-
-```python
-from agent_framework import tool
-
-# 1. Define the child agent that will do heavy lifting
-analyzer_agent = client.as_agent(
-    name="url_analyzer",
-    instructions="Fetch the URL, find the answer, and summarize it briefly. Do NOT return raw text.",
-    tools=[fetch_webpage_content]
-)
-
-# 2. Expose the child to the main orchestrator as a Tool
-@tool(name="delegate_research")
-async def delegate_research(query: str, url: str) -> str:
-    """Delegate a heavy reading task to a sub-agent."""
-    # The sub-agent has a separate AgentSession automatically!
-    response = await analyzer_agent.run(f"Look for {query} in {url}")
-    return response.text
-
-# 3. Main orchestrator remains fast and uncluttered
-orchestrator = client.as_agent(
-    name="orchestrator",
-    instructions="You are a planner. Use `delegate_research` to find facts safely.",
-    tools=[delegate_research]
-)
+```text
++-----------------------------------+
+|         Orchestrator Agent        |
+|-----------------------------------|
+| - Tool 1 (e.g., general tool)     |
+| - Tool 2 (delegate_to_subagent)   |
++-----------------+-----------------+
+                  | calls
+                  v
+       +--------------------+
+       |    Sub-Agent 1     |
+       |--------------------|
+       | - Specific Tool A  |
+       | - Specific Tool B  |
+       | - call_subagent_2  |
+       +--------+-----------+
+                | calls
+                v
+       +--------------------+
+       |    Sub-Agent 2     |
+       |--------------------|
+       | - Specialized Tool |
+       +--------------------+
 ```
+
+Typically, sub-agents are scoped to a specific task and only contain tools for that task. However, designing a general-purpose sub-agent with many tools is also possible if the orchestrator strictly prompts it for the task. The choice depends on the use-case:
+
+- **Scoped Sub-Agents:**
+  - **Pros:** Low token usage, high reliability on small local LLMs, avoids tool confusion.
+  - **Cons:** Rigid; requires declaring many distinct agents.
+- **General-Purpose Sub-Agents:**
+  - **Pros:** Highly flexible and reusable across different dynamic tasks.
+  - **Cons:** Bloats context window, high risk of tool hallucination on smaller/local hardware models.
+
+**Paradigm: Context Weight Management**
+Managing context windows is critical for local LLMs. You must actively prevent "context rot" by employing the following techniques:
+
+1.  **Sub-Agent Offloading:** Pass data-intensive operations (massive web searches, grepping full files) to a Sub-Agent. The child agent absorbs the massive context payload and simply returns a compressed semantic summary to the Orchestrator.
+2.  **Strict Chunking (Read Limits):** Enforce rigid read limits in your extraction tools. Never dump raw web pages or massive files into the agent; always restrict readings to a maximum number of lines (e.g., 500-line chunks) or strict token limits.
+3.  **Tool Quotas (Max Calls):** Strictly cap the number of times an agent can invoke specific tools using `@with_quota` (e.g., max 3 scraper retries). This prevents models from entering infinite extraction loops that exponentially bloat context history.
+
+**Reference Implementation:** Do not write delegation loop handlers from scratch. Simply clone and adapt the `delegate_analysis` function explicitly documented in the scaffold at `examples/basic-tui-agent/src/chat.py`.
 
 ## 3. Strict Workflow DAGs (Deterministic Pipelines)
 
-Sometimes conversational orchestration introduces too much unpredictability. If an operation has strong, sequential sub-steps (e.g., "Process Step A, then pass to Step B"), use Agent Framework's `WorkflowBuilder`. 
+Sometimes conversational orchestration introduces too much unpredictability. If an operation has strong, sequential sub-steps (e.g., "Process Step A, then pass to Step B"), use Agent Framework's `.add_edge()` pipeline. 
 
-You can review `https://github.com/microsoft/agent-framework/tree/main/python/samples/03-workflows/control-flow/` for internal paradigms.
+**Reference Implementation:** View `https://github.com/microsoft/agent-framework/tree/main/python/samples/03-workflows/control-flow/` for complete internal DAG execution paradigms.
 
-```python
-from agent_framework import Executor, WorkflowBuilder, WorkflowContext, handler
-
-class StepNode(Executor):
-    def __init__(self, step_name: str):
-        super().__init__(id=step_name)
-        self.step_name = step_name
-
-    @handler
-    async def process_node(self, state: str, ctx: WorkflowContext[str, str]) -> None:
-        # Perform rigid python logic here (DB writing, API uploads)
-        result = f"Finished {self.step_name}"
-        await ctx.yield_output(result)
-
-workflow = (
-    WorkflowBuilder(start_executor=StepNode("Ingestion"))
-    .add_edge(StepNode("Ingestion"), StepNode("Processing"))
-    .build()
-)
-
-await workflow.run("start")
-```
-*(Note: Sub-agents do **not** have to match their parent's pattern. An orchestrator can call a tool that triggers an entire DAG Workflow behind the scenes!)*
+*(Note: Sub-agents do **not** have to match their parent's pattern. An orchestrator can call a tool that triggers an entire deterministic DAG Workflow behind the scenes!)*
 
 ## 4. Handling Context Dynamically
 - **Static Reading (Forbidden):** Returning 60,000 tokens of raw text to the agent.
@@ -123,8 +126,4 @@ Toggle via `config.yaml` `settings.enable_conversational_memory`. Reset via `/ne
 ## 8. Tool Quota Enforcement
 **Rule: You MUST use the @with_quota decorator on every tool to stop infinite local extraction loops.**
 Small models often enter infinite loops if a scraper fails. Applying `@with_quota` natively tracks invocation limits (see `examples/basic-tui-agent/src/tools.py`).
-
-## 9. Session State & Memory Continuity
-- **Single-Turn**: Default `agent.run()`. No memory. Fastest execution.
-- **Multi-Turn**: Use `AgentSession`. See `examples/basic-tui-agent/src/chat.py` for persistent memory implementation.
 

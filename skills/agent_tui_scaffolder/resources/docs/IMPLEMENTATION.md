@@ -6,6 +6,9 @@ When building agents with Microsoft's `agent-framework` locally, strict boilerpl
 
 You will find scaffold projects and documentation for how to create agents in the `scaffolds` and `docs` subfolders. **DO NOT edit or touch the files inside these folders.** These are strictly read-only references.
 
+> [!NOTE]
+> While this file explains structural implementation and python boilerplate, you **MUST** reference [`PROMPTING.md`](./PROMPTING.md) to understand how to write instructions that guide agent behavior reliably on local hardware.
+
 **Rule: NEVER construct an agent from scratch. You MUST copy the contents of the `examples/basic-tui-agent/` directory to your main project folder for editing to create the agent the user wants.**
 
 **Rule: PRUNE UNUSED TOOLS. The scaffold contains common reference implementations (like `web_search` and `fetch_url_to_workspace`). If the agent you are building does not need these tools, you MUST explicitly delete them from the workspace to save tokens and prevent hallucinated tool calls.**
@@ -41,7 +44,7 @@ Provide initial scripting configurations to the user:
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install agent-framework python-dotenv httpx textual beautifulsoup4
+pip install -r requirements.txt
 ```
 
 ### Workspace File System Handling
@@ -83,29 +86,8 @@ settings:
 
 ### Conversational Memory Recipe
 
-When `enable_conversational_memory: true`, hold a module-level `AgentSession` and pass it to each `agent.run()`:
-
-```python
-from agent_framework import AgentSession
-
-_session = None
-
-def create_agent():
-    agent = client.as_agent(name="my_agent", instructions=prompt, tools=tools)
-    session = None
-    if config.cfg["settings"].get("enable_conversational_memory", False):
-        global _session
-        if _session is None:
-            _session = agent.create_session()
-        session = _session
-    return agent, session
-
-def reset_session():
-    global _session
-    _session = None
-```
-
-The framework's built-in `InMemoryHistoryProvider` auto-injects when a session is provided. No manual history management needed. See `examples/basic-tui-agent/src/chat.py`.
+When `enable_conversational_memory: true`, the framework's built-in `InMemoryHistoryProvider` can automatically inject and manage histories seamlessly. You do not need to manage history lists manually.
+**Reference Implementation:** Clone the module-level `_session` state passing logic found explicitly in `examples/basic-tui-agent/src/chat.py`.
 
 ## 2. Managing the <think> Token Artifacts
 Small LLMs can hallucinate unbalanced tags. You must strip them natively using regex before final user display:
@@ -162,22 +144,8 @@ settings:
 A local agent must process files locally to maintain security perimeters. 
 
 ### Microsoft MarkItDown 
-Universal parser for native Python integration (HTML, Excels, Word, simple PDFs).
-*[Requires: `pip install markitdown`]*
-```python
-from bs4 import BeautifulSoup
-from markitdown import MarkItDown
-
-# Instantiate cleanly. Do NOT hold context inside this unless caching deliberately.
-_markitdown = MarkItDown()
-
-def convert_document_to_md(filepath: str) -> str:
-    md = MarkItDown()
-    result = md.convert(filepath)
-    if not result.text_content:
-       return "Document could not be parsed."
-    return result.text_content
-```
+Microsoft's `markitdown` provides universal parsing for text-native files (HTML, Office, basic PDF).
+**Reference Implementation:** Import and utilize the safe, size-capped `convert_document_to_md` function located entirely within `examples/basic-tui-agent/src/utils/parsers.py`.
 
 ## Tool Authorization (Human-In-The-Loop)
 
@@ -195,30 +163,8 @@ def auth_test_delete(target: str) -> str:
 When an agent attempts to call an `always_require` tool, the raw response payload will stall and yield a `user_input_requests` object back to the orchestrator. You MUST surface this to the user, grab a Boolean confirmation (`True/False`), and re-inject it back into the stream alongside the original context. *(Review `UI_GUIDELINES.md` for the exact Streaming Interception loop).*
 
 ### Liteparse (LlamaIndex)
-If advanced PDF layout interpretation is demanded, use `liteparse` via local subprocess execution. Because it utilizes Node.js, wrap the execution cleanly:
-
-```bash
-# Required global installation
-npm install -g @llamaindex/liteparse
-```
-
-```python
-import subprocess
-import shutil
-
-def extract_advanced_pdf(filepath: str) -> str:
-    """Utilizes Liteparse for layout comprehension of complex PDFs"""
-    if not shutil.which("liteparse"):
-        raise EnvironmentError("liteparse is missing. Run: npm i -g @llamaindex/liteparse")
-
-    result = subprocess.run(
-        ["liteparse", filepath], 
-        capture_output=True, 
-        text=True,
-        check=True
-    )
-    return result.stdout
-```
+For advanced PDF layout interpretation or heavy OCR via local subprocess execution, utilize Node.js-based `@llamaindex/liteparse`.
+**Reference Implementation:** Use the `extract_advanced_pdf` (or `robust_ocr_parse`) function natively baked into `examples/basic-tui-agent/src/utils/parsers.py` to seamlessly execute CLI extraction.
 
 ## 6. Sub-Agent Delegation with TUI Streaming
 **Rule: To enable deeply nested sub-agents with live UI token streams, DO NOT use `.as_tool()`.**

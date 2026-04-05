@@ -39,51 +39,7 @@ Provide conversational intercepts using `/` commands (like `/stop`, `/config`, `
 > [!NOTE]
 > The scaffold includes a built-in `/config` command (implemented in `src/main.py`) which renders the currently loaded `config.cfg` structure dynamically via markdown. If you add highly specialized settings or commands that require explicit UI visibility mapping, remember to check and update this `/config` display hook if the default dictionary iteration loop cannot capture it natively.
 
-```python
-from textual.app import App, ComposeResult
-from textual.widgets import Input, OptionList
-from textual import events
-
-class AgentTerminal(App):
-    SLASH_COMMANDS = [
-        ("/stop", "Emergency stop generation"),
-        ("/toggle_thinking", "Enable/Disable slow reasoning models")
-    ]
-
-    def compose(self) -> ComposeResult:
-        # Visually hide the command list on startup
-        opt_list = OptionList(id="command-list")
-        opt_list.display = False
-        yield opt_list
-        yield Input(id="prompt-input", placeholder="Chat or use / ...")
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """Trigger autocompletion filters when text shifts"""
-        val = event.value
-        opt_list = self.query_one("#command-list", OptionList)
-        
-        if val.startswith("/"):
-            filtered = [
-                (cmd, desc) for cmd, desc in self.SLASH_COMMANDS
-                if cmd.startswith(val.lower())
-            ]
-            opt_list.clear_options()
-            for cmd, desc in filtered:
-                opt_list.add_option(f"{cmd} - {desc}")
-            opt_list.display = True
-        else:
-            opt_list.display = False
-            
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Intercept the submission event"""
-        val = event.value.strip()
-        opt_list = self.query_one("#command-list", OptionList)
-        opt_list.display = False # hide upon submit
-        
-        if val.lower() == "/stop":
-            # Fire cancellation logic globally
-            pass
-```
+**Reference Implementation:** Do not re-write Textual logic to handle options lists or autocomplete dropdowns. Use the native `SLASH_COMMANDS` tuple and the `on_input_submitted` / `on_input_changed` handlers natively built into the scaffold at `examples/basic-tui-agent/src/main.py`.
 
 ## 3. Rendering Asynchronous Hierarchical Tool Execution
 
