@@ -120,13 +120,12 @@ def think_tool(reflection: str) -> str:
 
 ## 4. Tool Quota Management Recipe
 **Rule: Always implement Tool invocation quotas to stop infinite tool-calling loops!**
-1. Configure limits centrally in `config.yaml` (or the scaffold template). The schema should support both invocation counts (`limit`) and custom constraints (`rules`).
+1. Configure limits centrally in `config.yaml` (or the scaffold template). The schema dynamically supports BOTH flat integers (for simple limits) and dictionaries (for limits + rules).
 ```yaml
 settings:
   quotas:
-    fetch_url_to_workspace: 
-      limit: 5
-    read_workspace_file:
+    fetch_url_to_workspace: 5    # Flat integer limit
+    read_workspace_file:         # Dictionary configuration
       limit: 100
       rules:
         max_lines: 300
@@ -135,8 +134,12 @@ settings:
       rules:
         max_matches: 10
 ```
+
+> [!WARNING]
+> Because quotas can be EITHER integers or dictionaries, **DO NOT** use chained deep `.get()` calls like `quotas.get("tool", {}).get("limit", 10)`. You will trigger an `AttributeError: 'int' object has no attribute 'get'` when the value is a flat integer. If you must read limits manually, check `isinstance(val, int)`.
+
 2. Wrap your tools natively using the `@with_quota` decorator found in `examples/basic-tui-agent/src/tools.py`.
-3. Inside your tool, use `_get_tool_rule(tool_name, rule_key, default)` to extract specific constraints and reject LLM calls that exceed the bounds.
+3. Inside your tool, use `_get_tool_rule(tool_name, rule_key, default)` to extract specific constraints without needing to parse the config dictionary manually.
 
 ## 5. Universal Document Processing Without Cloud APIs
 **Rule: Always use `markitdown` or `liteparse` to convert downloaded webpages, raw HTML, PDFs, and rich documents into markdown formats before parsing.**
@@ -170,6 +173,16 @@ For advanced PDF layout interpretation or heavy OCR via local subprocess executi
 **Rule: To enable deeply nested sub-agents with live UI token streams, DO NOT use `.as_tool()`.**
 Instead, build a manual wrapper that propagates async streams up to the chat UI. 
 You **MUST** strictly clone the pattern implemented in `examples/basic-tui-agent/src/chat.py` (`delegate_analysis`) and the `handle_agent_update` intercept block. Those scaffold files serve as the blueprint for complex TUI handling.
+
+> [!WARNING]
+> **CRITICAL SUB-AGENT CODING RULES:**
+> 1. **Location:** You **MUST** define delegation tools *inside* `create_local_agent()` in `chat.py`. Do NOT abstract sub-agent creation into `tools/` files. Defining them inside `chat.py` is required to capture `subagent_callback` and stream child agent reasoning/text back to the UI. If you put them in `tools/`, the UI will freeze and show nothing!
+> 2. **Decorator:** When defining a delegation tool using the `@tool` decorator, ALWAYS provide an explicit `description` argument (e.g., `@tool(name="delegate_task", description="Highly detailed instructions...")`). Relying only on docstrings for complex sub-agent delegation tools often results in `Error: Function Failed` due to the Parent LLM failing to build the correct JSON schema.
+
+**Customizing UI Output:** When triggering the stream callback, you may explicitly pass `agent_name` to correctly label the nested stream in the UI console:
+```python
+await subagent_callback(update, is_subagent=True, agent_name="DeepSearchAgent")
+```
 
 ## 7. Headless Execution (Cron/Batch processing)
 Agents built using this scaffold natively support headless CLI operations for server-side or batch processing scripts.

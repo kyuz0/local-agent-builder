@@ -15,8 +15,8 @@ When making changes to the source code, examples, or documentation within this r
 
 When modifying this project, keep the following scope in mind for each core component:
 
-- **`skills/agent_tui_scaffolder/SKILL.md`**: The primary entry point loaded by end-user coding agents. When adding new capabilities or major rules to the scaffold, update this file so the external agent is aware of them. Keep instructions terse.
-- **`skills/agent_tui_scaffolder/resources/docs/`**: The system rulebooks (e.g., `IMPLEMENTATION.md`, `ARCHITECTURE.md`). Update these if you change the scaffold architecture or add new operational patterns.
-- **`skills/agent_tui_scaffolder/examples/basic-tui-agent/`**: The core application scaffold that gets copied by the end-user agent. If you modify the baseline loop, tools, or configuration logic (`chat.py`, `tools/`, `config.py`), ensure the changes preserve efficiency for local consumer hardware (7B-32B models).
+- **`skills/local-agent-builder/SKILL.md`**: The primary entry point loaded by end-user coding agents. When adding new capabilities or major rules to the scaffold, update this file so the external agent is aware of them. Keep instructions terse.
+- **`skills/local-agent-builder/resources/docs/`**: The system rulebooks (e.g., `IMPLEMENTATION.md`, `ARCHITECTURE.md`). Update these if you change the scaffold architecture or add new operational patterns.
+- **`skills/local-agent-builder/examples/basic-tui-agent/`**: The core application scaffold that gets copied by the end-user agent. If you modify the baseline loop, tools, or configuration logic (`chat.py`, `tools/`, `config.py`), ensure the changes preserve efficiency for local consumer hardware (7B-32B models).
 
 *Note: The specific guidelines for how the generated local agents should behave are defined in `SKILL.md` and the `docs/` folder.*

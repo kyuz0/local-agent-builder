@@ -517,7 +517,7 @@ class BasicTuiAgent(App):
         if chat.max_scroll_y - chat.scroll_y <= 3:
             chat.scroll_end(animate=False)
 
-    async def handle_agent_update(self, update, state, chat, is_subagent=False):
+    async def handle_agent_update(self, update, state, chat, is_subagent=False, agent_name=None):
         # --- Extract reasoning_content from raw chunk delta ---
         raw_reasoning = None
         chat_update = getattr(update, "raw_representation", None)
@@ -537,14 +537,24 @@ class BasicTuiAgent(App):
                 widget.stop()
                 state["processing_widget"] = None
 
-        source_name = "Sub-Agent" if is_subagent else "Agent"
+        source_name = agent_name if agent_name else ("Sub-Agent" if is_subagent else "Agent")
+        
+        # Calculate dynamic nesting depth based on open, unresolved tool calls in the current state
+        active_tools = sum(1 for w in state.get("calls", {}).values() if not w._done)
+        depth = (1 + active_tools) if is_subagent else active_tools
+
+        def apply_depth_style(widget):
+            if depth > 0:
+                widget.styles.margin = (0, 2, 1, 2 + (4 * depth))
+                widget.styles.border_left = ("vkey", "purple" if depth > 0 else "blue")
+            return widget
 
         if raw_reasoning:
             log_stream_content(source_name, "reasoning", {"text": raw_reasoning})
             if state.get("thinking_widget") is None:
                 tw = ThinkingWidget()
                 state["thinking_widget"] = tw
-                chat.mount(tw)
+                chat.mount(apply_depth_style(tw))
             state["thinking_widget"].append(raw_reasoning)
             self._safe_scroll_end(chat)
         
@@ -565,7 +575,7 @@ class BasicTuiAgent(App):
                     if state.get("thinking_widget") is None:
                         tw = ThinkingWidget()
                         state["thinking_widget"] = tw
-                        chat.mount(tw)
+                        chat.mount(apply_depth_style(tw))
                     state["thinking_widget"].append(reasoning_text)
                     self._safe_scroll_end(chat)
 
@@ -583,7 +593,7 @@ class BasicTuiAgent(App):
                     state["thinking_widget"] = None
                 if state["current_msg"] is None:
                     state["current_msg"] = AgentMessageWidget(source_name)
-                    chat.mount(state["current_msg"])
+                    chat.mount(apply_depth_style(state["current_msg"]))
                 state["current_msg"].append_text(content.text)
                 self._safe_scroll_end(chat)
                 
@@ -601,7 +611,7 @@ class BasicTuiAgent(App):
                     if content.call_id not in state["calls"]:
                         widget = ToolCallWidget(name=content.name, call_id=content.call_id, is_subagent=is_subagent)
                         state["calls"][content.call_id] = widget
-                        chat.mount(widget)
+                        chat.mount(apply_depth_style(widget))
                     else:
                         widget = state["calls"][content.call_id]
                         
@@ -656,8 +666,8 @@ class BasicTuiAgent(App):
         # Set up subagent callback context
         subagent_state = {"calls": {}, "current_call_id": None, "current_msg": None}
 
-        async def ui_callback(update, is_subagent=True):
-            await self.handle_agent_update(update, subagent_state, chat, is_subagent=is_subagent)
+        async def ui_callback(update, is_subagent=True, **kwargs):
+            await self.handle_agent_update(update, subagent_state, chat, is_subagent=is_subagent, agent_name=kwargs.get("agent_name"))
             
         # Create agent (re-reads config) and get session (None if conversational memory disabled)
         agent, session = create_local_agent(subagent_callback=ui_callback)
@@ -834,8 +844,8 @@ async def run_cli(prompt: str):
             sub_quotas[k] = {"used": 0, "limit": v["limit"], "rules": v.get("rules", {})}
     token = tool_quotas_ctx.set(sub_quotas)
 
-    async def cli_subagent_callback(update, is_subagent=True):
-        agent_name = getattr(update, "author_name", None) or "Sub-Agent"
+    async def cli_subagent_callback(update, is_subagent=True, **kwargs):
+        agent_name = kwargs.get("agent_name") or getattr(update, "author_name", None) or "Sub-Agent"
         for content in update.contents:
             log_stream_content(agent_name, "content", {"type": content.type})
             if content.type == "function_call" and content.call_id:

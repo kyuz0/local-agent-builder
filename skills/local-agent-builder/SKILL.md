@@ -15,9 +15,11 @@ Familiarize yourself with and deploy the exact recipes documented below.
 
 You will find the scaffold project and documentation for how to create agents in the `examples` and `resources` subfolders of this skill. **DO NOT edit or touch the files inside these folders.** These are strictly read-only references for you.
 
-**MANDATORY FIRST STEP: When building a new app, you MUST copy the entire contents of the `examples/basic-tui-agent/` directory to the main project folder as your starting point**, and read its `README.md`.
+> **CRITICAL PATH RESOLUTION FOR AI AGENTS:** Since this skill may be loaded from a global skills directory (e.g., `~/opencode/skills/`) or local skills directory (e.g., `.opencode/skills/`), all file paths mentioned below (like `resources/...` and `examples/...`) are relative to the folder containing this `SKILL.md` file. You **MUST** resolve these to their absolute paths using `SKILL.md`'s location before using your tools to list, read, or copy them. Do not assume they are in the current working directory.
 
-1. **[Architecture](resources/docs/ARCHITECTURE.md)**: Rules for context management and Flat vs Sub-Agent pipelines.
+**MANDATORY FIRST STEP: When building a new app, you MUST copy the entire contents of the `examples/basic-tui-agent/` directory (located in this skill's folder) to the main project working directory as your starting point**, and read its `README.md`.
+
+1. **[Architecture](resources/docs/ARCHITECTURE.md)**: Rules for context management and Flat vs Sub-Agent pipelines. **(CRITICAL: Sub-agent loop handlers MUST reside in `chat.py`, never in `tools/`!)**
 2. **[Implementation](resources/docs/IMPLEMENTATION.md)**: Vital Python boilerplates for `<think>` tag scraping, TUI integrations, and Headless CLI (`--prompt`) batch processing. Includes rules on deleting (`pruning`) optional features like `markitdown` parsers or `web_search` to save context if unneeded.
 3. **[Tools](resources/docs/TOOLS.md)**: Copy-paste snippets for Web Search, Parsing, and Virtual FS.
 4. **[UI Guidelines](resources/docs/UI_GUIDELINES.md)**: Textual rendering rules, spanning the `OptionList` dropdown components and the collapsible workspace file viewers natively triggered via `/files` commands (dynamically reads from in-memory or on-disk based on `config.yaml`).
