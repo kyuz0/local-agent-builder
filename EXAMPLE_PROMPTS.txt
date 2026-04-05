@@ -1,0 +1,37 @@
+# Example Prompts
+
+The following are example prompts you can use to instruct a coding assistant to build powerful, complex agents using the `local-agent-builder` skill.
+
+---
+
+## 1. Deep Research Agent (Multi-Tier Hierarchical Delegation)
+
+**Copy and paste the following prompt to your coding assistant:**
+
+```text
+Using the local-agent-builder skill, build a "Deep Research Agent" that can perform extensive web-based research and document analysis. 
+
+Please adhere to the strict architectural scaffold and ensure the following hierarchical design and features are met:
+
+### Architecture Hierarchy
+1. **Orchestrator Agent**:
+   - MUST NOT have direct access to the `web_search` tool.
+   - Responsible for creating a structured TODO list outlining the research phases.
+   - For each phase, it dispatches specialized "Search Sub-Agents" to gather information. (Simple tasks may only need one dispatch; complex tasks require scoping different research angles).
+   - Responsible for writing the user's original query to `query.md` and producing a final `final_report.md` with a highly professional structure.
+
+2. **Search Sub-Agent**:
+   - Receives the specific research task from the Orchestrator. 
+   - Uses the `web_search` tool to find relevant links.
+   - Fetches the links to the local workspace.
+   - Delegates the actual reading and parsing of the downloaded pages to a nested "Page Analyzer Sub-Agent".
+
+3. **Page Analyzer Sub-Agent**:
+   - Receives the original research context and the specific target query from the Search Sub-Agent.
+   - Capable of reading the entire document OR, if the page is too large, using the `grep_workspace_file` tool to quickly extract relevant sections.
+   - Must be specifically instructed to extract and surface any relevant "Read More" links, navigation menus, or references back to the Search Sub-Agent, allowing the Search Sub-Agent to continue diving deeper into rabbit holes if necessary.
+
+### Operational Requirements
+- **Directory Isolation**: For every distinct user research run, the Orchestrator MUST create an isolated sub-folder sequentially (e.g., `run_00001/`) inside the current workspace. All files for that run (`query.md`, `todos.md`, downloaded HTML/Markdown pages, and `final_report.md`) must be saved within this sub-folder.
+- **Configurable Quotas**: Every single tool across all agents (including sub-agent delegations) MUST be heavily restricted with quotas in the `config.yaml` to prevent infinite web-scraping recursion.
+```
