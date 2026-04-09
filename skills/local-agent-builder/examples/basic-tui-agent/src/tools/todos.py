@@ -30,7 +30,9 @@ def write_todos(todos: str) -> str:
         else:
             _IN_MEMORY_FS[path] = todos
         return "Todos saved successfully."
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        import traceback
+        return f"Error: {e}\n\nTraceback:\n{traceback.format_exc()}"
 
 @tool
 @with_quota
@@ -45,4 +47,6 @@ def read_todos() -> str:
         if content:
             return content
         return "No todos have been saved yet."
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        import traceback
+        return f"Error: {e}\n\nTraceback:\n{traceback.format_exc()}"

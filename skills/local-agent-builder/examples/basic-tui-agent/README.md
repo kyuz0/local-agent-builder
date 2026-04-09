@@ -6,11 +6,17 @@ This repository is built using the **Microsoft Agent Framework** and the **Textu
 
 ## Setup Instructions
 
-1. **Create the Environment**
+1. **Create the Environment & Install**
    ```bash
    python -m venv venv
    source venv/bin/activate
-   pip install -r requirements.txt
+   pip install -e .
+   ```
+
+   **System-Wide Installation (Optional):**
+   To install the agent as a standalone, system-wide terminal command:
+   ```bash
+   pipx install .
    ```
 
 2. **Configure Endpoints**

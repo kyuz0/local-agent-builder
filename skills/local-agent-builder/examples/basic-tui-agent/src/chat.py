@@ -27,8 +27,12 @@ def create_local_agent(subagent_callback=None):
     
     # -------------------------------------------------------------
     # SUB-AGENT DELEGATION EXAMPLE
-    # We define a specialized "Analysis" sub-agent that has a focused context.
-    # To stream its execution to the UI, we use the manual wrapper.
+    # -------------------------------------------------------------
+    # [!CAUTION] RULES FOR LLM CODING ASSISTANTS EDITING THIS:
+    # 1. LOCATION: ALWAYS define delegation tools INSIDE this `create_local_agent()` function. DO NOT move them to `tools/`.
+    # 2. NO HALLUCINATIONS: DO NOT invent global counters or use `_get_next_id()` to name sub-agents dynamically. Hardcode `name="SubAgentName"` below.
+    # 3. REUSE: Read `IMPLEMENTATION.md` Section 6 before attempting to add or modify sub-agent delegations. Do not rewrite from scratch.
+    # 4. DEPENDENCY ORDERING (CRITICAL): Python evaluates these local closure functions sequentially. If Sub-Agent A uses a delegation tool for Sub-Agent B, you MUST define Sub-Agent B's tool completely ABOVE Sub-Agent A's tool. Otherwise, you will get a NameError or falsely omit the schema!
     # -------------------------------------------------------------
     # Define sub-agent strict quotas
     q_sub_read = config.cfg.get("settings", {}).get("quotas", {}).get("read_workspace_file", {}).get("limit", 10)
@@ -93,6 +97,11 @@ def create_local_agent(subagent_callback=None):
         finally:
             tool_quotas_ctx.reset(token)
 
+    # -------------------------------------------------------------
+    # [!CAUTION] RULES FOR LLM CODING ASSISTANTS EDITING THIS:
+    # When adding or removing standard tools (e.g., pruning `web_search`), modify the `WORKSPACE_TOOLS` array or this `tools_list`.
+    # DO NOT rewrite this entire function or file from scratch.
+    # -------------------------------------------------------------
     # Orchestrator retains full access to WORKSPACE_TOOLS but gains `delegate_file_analysis`
     tools_list = WORKSPACE_TOOLS + [delegate_file_analysis]
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

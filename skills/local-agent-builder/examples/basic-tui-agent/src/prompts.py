@@ -1,5 +1,12 @@
 import datetime
 
+# -------------------------------------------------------------
+# [!CAUTION] RULES FOR LLM CODING ASSISTANTS EDITING THIS:
+# 1. DO NOT rewrite this entire file from scratch.
+# 2. When creating new agents, duplicate the existing instruction patterns below and adapt them.
+# 3. CRITICAL: You must ALWAYS preserve the `<Hard Limits>` and `<Strategy>` blocks inside your prompts to protect context quotas and recursion limits.
+# -------------------------------------------------------------
+
 SUBAGENT_DELEGATION_INSTRUCTIONS = """# Sub-Agent Delegation
 
 Your context window is limited. While you retain access to standard tools like file reading and web search, you should heavily consider delegating deep-dive tasks.

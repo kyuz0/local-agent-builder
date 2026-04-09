@@ -19,8 +19,8 @@ import argparse
 from pathlib import Path
 import pyfiglet
 
-AGENT_NAME = "Basic TUI Agent"
-AGENT_DESCRIPTION = "Basic TUI Agent Scaffold"
+AGENT_NAME = config.APP_TITLE
+AGENT_DESCRIPTION = config.APP_DESCRIPTION
 
 _session_events = []
 _current_call_by_source = {}
@@ -31,8 +31,7 @@ def _write_log():
     if not config.cfg["settings"].get("enable_session_logging", False):
         return
         
-    sanitized_name = re.sub(r'[^a-z0-9_\-]', '', AGENT_NAME.lower().replace(' ', '-'))
-    log_dir = Path.home() / f".{sanitized_name}-logs"
+    log_dir = Path.home() / f".{config.APP_NAME}-logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     
     log_file = log_dir / f"session_{_current_session_id}.json"
@@ -488,8 +487,7 @@ class BasicTuiAgent(App):
             chat = self.query_one("#chat-container", VerticalScroll)
             msg = f"**System:**\nSession logging is now **{state}**."
             if config.cfg["settings"]["enable_session_logging"]:
-                sanitized_name = re.sub(r'[^a-zA-Z0-9_\-]', '', AGENT_NAME.replace(' ', '-'))
-                log_dir = Path.home() / f".{sanitized_name}-logs"
+                log_dir = Path.home() / f".{config.APP_NAME}-logs"
                 log_file = log_dir / f"session_{_current_session_id}.json"
                 msg += f"\nLogging to: `{log_file}`"
                 _write_log() # Force an initial write so the file exists
@@ -648,6 +646,14 @@ class BasicTuiAgent(App):
     @work(exclusive=True)
     async def run_agent(self, query: str):
         self._is_agent_running = True
+        
+        # [OPTIONAL SESSION DIRECTORY PATTERN]
+        # Uncomment below to cleanly isolate and map ALL workspace file operations 
+        # for this run to a subfolder (e.g. `run_timestamp/`). This ensures sub-agents
+        # share the same flat paths without confusion.
+        # import time
+        # from tools.fs import session_dir_ctx
+        # session_token = session_dir_ctx.set(f"run_{int(time.time())}")
         
         # Initialize tool quotas from config
         from tools import tool_quotas_ctx
@@ -832,7 +838,7 @@ class BasicTuiAgent(App):
         self._filtered_cmds = []
         self.query_one("#command-list", OptionList).display = False
 
-async def run_cli(prompt: str):
+async def run_cli(prompt: str = None, prompt_file: str = None):
     """Run the agent in headless mode, streaming results to stdout."""
     from tools import tool_quotas_ctx
     config_quotas = config.cfg.get("settings", {}).get("quotas", {})
@@ -852,8 +858,20 @@ async def run_cli(prompt: str):
                 sys.stdout.write(f"\n\033[93m[{agent_name}] Calling {content.name}...\033[0m\n")
 
     agent, session = create_local_agent(subagent_callback=cli_subagent_callback)
-    
-    sys.stdout.write(f"\n\033[1mStarting task:\033[0m {prompt}\n\n")
+
+    if prompt_file:
+        try:
+            with open(prompt_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                prompt = "\n\n".join([f"{msg.get('role', 'user').upper()}:\n{msg.get('content', '')}" for msg in data])
+            else:
+                prompt = json.dumps(data)
+        except Exception as e:
+            sys.stdout.write(f"\n\033[91mError reading prompt file: {e}\033[0m\n")
+            return
+            
+    sys.stdout.write(f"\n\033[1mStarting task:\033[0m {prompt[:100]}...\n\n")
     start_time = datetime.now()
     
     try:
@@ -873,14 +891,20 @@ async def run_cli(prompt: str):
     finally:
         tool_quotas_ctx.reset(token)
 
-if __name__ == "__main__":
+def cli_main():
     parser = argparse.ArgumentParser(description="Basic Agent TUI / CLI Scaffold")
     parser.add_argument("--config", "-c", type=str, help="Path to config.yaml", default=None)
     parser.add_argument("--prompt", "-p", type=str, help="Run non-interactively with a specific prompt (headless mode)", default=None)
+    parser.add_argument("--prompt-file", "-f", type=str, help="Run non-interactively reading a JSON context file", default=None)
     args, _ = parser.parse_known_args()
 
-    if args.prompt:
+    if args.prompt_file:
+        asyncio.run(run_cli(prompt_file=args.prompt_file))
+    elif args.prompt:
         log_prompt(args.prompt)
-        asyncio.run(run_cli(args.prompt))
+        asyncio.run(run_cli(prompt=args.prompt))
     else:
         BasicTuiAgent().run()
+
+if __name__ == "__main__":
+    cli_main()

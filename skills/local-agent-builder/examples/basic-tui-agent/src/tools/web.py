@@ -62,14 +62,36 @@ async def fetch_url_to_workspace(url: str, filename: str, convert_to_md: bool = 
         else:
             _IN_MEMORY_FS[path] = chunk
             return f"Fetched URL successfully to '{filename}' in memory."
-    except Exception as e: return f"Failed: {e}"
+    except Exception as e:
+        import traceback
+        return f"Failed: {e}\n\nTraceback:\n{traceback.format_exc()}"
 
 @tool(approval_mode="never_require")
-@with_quota
-async def web_search(query: str, max_results: int = 5, topic: str = "general") -> str:
-    """Search the web for information on a given query."""
+async def web_search(
+    query: str,
+    max_results: int = 5,
+    topic: str = "general",
+) -> str:
+    """Search the web for information on a given query.
+
+    Returns search results with titles, URLs, and snippets.
+
+    Args:
+        query: Search query to execute
+        max_results: Maximum number of results to return (default: 5)
+        topic: Topic filter - 'general', 'news', or 'finance' (default: 'general')
+
+    Returns:
+        Formatted search results with titles, URLs, and snippets
+    """
+    from tools.core import check_quota
+    quota_error = check_quota("web_search")
+    if quota_error:
+        return quota_error
+        
     def _do_search():
         from ddgs import DDGS
+        import config as app_config
         
         def _sanitize_snippet(text: str) -> str:
             """Strip CSS, SVG, and HTML artifacts from search snippets."""
@@ -80,21 +102,32 @@ async def web_search(query: str, max_results: int = 5, topic: str = "general") -
             text = re.sub(r'%3[CEce][^%\s]{10,}', '', text)
             return re.sub(r'\s+', ' ', text).strip()
 
+        provider = app_config.cfg.get("settings", {}).get("search_provider", "duckduckgo")
         result_texts = []
-        if topic == "news":
-            search_results = DDGS().news(query, max_results=max_results)
-            for result in search_results:
-                snippet = _sanitize_snippet(result.get("body", ""))
-                result_texts.append(f"## {result.get('title')}\n**URL:** {result.get('url')}\n**Snippet:** {snippet}\n")
-        else:
-            search_results = DDGS().text(query, max_results=max_results)
-            for result in search_results:
-                snippet = _sanitize_snippet(result.get("body", ""))
-                result_texts.append(f"## {result.get('title')}\n**URL:** {result.get('href')}\n**Snippet:** {snippet}\n")
-                
-        return f"Found {len(result_texts)} result(s):\n\n" + "\n".join(result_texts)
 
+        if provider == "duckduckgo" or provider not in ("duckduckgo", "tavily"):
+            # Default/fallback: DuckDuckGo (free, no API key required)
+            if topic == "news":
+                search_results = DDGS().news(query, max_results=max_results)
+                for result in search_results:
+                    url = result.get("url", "")
+                    title = result.get("title", "")
+                    snippet = _sanitize_snippet(result.get("body", "No snippet available"))
+                    result_texts.append(f"## {title}\n**URL:** {url}\n**Snippet:** {snippet}\n")
+            else:
+                search_results = DDGS().text(query, max_results=max_results)
+                for result in search_results:
+                    url = result.get("href", "")
+                    title = result.get("title", "")
+                    snippet = _sanitize_snippet(result.get("body", "No snippet available"))
+                    result_texts.append(f"## {title}\n**URL:** {url}\n**Snippet:** {snippet}\n")
+        elif provider == "tavily":
+            pass # Removed Tavily placeholder to avoid undefined get_tavily_client() error in scaffold
+
+        return f"🔍 Found {len(result_texts)} result(s) for '{query}':\n\n{chr(10).join(result_texts)}"
+        
     try:
         return await asyncio.to_thread(_do_search)
     except Exception as e:
-        return f"Search failed: {e}"
+        import traceback
+        return f"Search failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"

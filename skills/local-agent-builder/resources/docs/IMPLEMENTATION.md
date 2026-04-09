@@ -20,7 +20,7 @@ The scaffold provides this exact structure out-of-the-box:
 your-main-project/  <-- (This is the copied examples/basic-tui-agent/ folder)
 ├── .env                  # Untracked API bases & dummy keys
 ├── .env.example          # Template for .env (checked into source control)
-├── requirements.txt      # Python dependencies
+├── pyproject.toml        # Application configuration and dependencies
 ├── src/
 │   ├── main.py           # TUI and entrypoint
 │   ├── config.py         # Config loader (YAML + ENV fallback)
@@ -44,7 +44,12 @@ Provide initial scripting configurations to the user:
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
+```
+
+For system-wide command installation (creating isolated binary wrapper):
+```bash
+pipx install .
 ```
 
 ### Workspace File System Handling
@@ -178,6 +183,8 @@ You **MUST** strictly clone the pattern implemented in `examples/basic-tui-agent
 > **CRITICAL SUB-AGENT CODING RULES:**
 > 1. **Location:** You **MUST** define delegation tools *inside* `create_local_agent()` in `chat.py`. Do NOT abstract sub-agent creation into `tools/` files. Defining them inside `chat.py` is required to capture `subagent_callback` and stream child agent reasoning/text back to the UI. If you put them in `tools/`, the UI will freeze and show nothing!
 > 2. **Decorator:** When defining a delegation tool using the `@tool` decorator, ALWAYS provide an explicit `description` argument (e.g., `@tool(name="delegate_task", description="Highly detailed instructions...")`). Relying only on docstrings for complex sub-agent delegation tools often results in `Error: Function Failed` due to the Parent LLM failing to build the correct JSON schema.
+> 3. **No Hallucinated State:** Do NOT invent global state variables or undeclared counter functions (like `_get_next_id()`) to dynamically name your sub-agents in a loop. Subagents do not need unique numeric IDs. Hardcode a static name (e.g., `name="SearchAgent"`) when passing it to `client.as_agent()`. The framework easily supports repeated instantiation of the same-named sub-agent. Hallucinating these functions will cause `NameError` and break the delegation.
+> 4. **Dependency Ordering (CRITICAL):** Because delegation tools are local closure functions (`async def ...`) inside `create_local_agent()`, Python evaluates them sequentially. If Sub-Agent A needs to be given a delegation tool to dispatch Sub-Agent B, you **MUST** define Sub-Agent B's delegation tool completely *before* Sub-Agent A's tool in the file. If you define them out of order, passing it into `tools=[...]` will throw a `NameError`, or if you simply omit it to avoid the error, the parent agent will spin infinitely trying to call a tool it lacks the schema for!
 
 **Customizing UI Output:** When triggering the stream callback, you may explicitly pass `agent_name` to correctly label the nested stream in the UI console:
 ```python
@@ -192,6 +199,10 @@ By skipping the TUI and directly invoking local streams to `sys.stdout`, you can
 python src/main.py --prompt "Analyze the provided log files and output a markdown summary."
 ```
 This is fully baked into the `argparse` configuration block found in `src/main.py` when following the `basic-tui-agent` scaffold.
+
+### 7.1 Background Mailbox Daemon Integration (Stage 2 Add-on)
+Agents can optionally be wrapped into a background email-driven workflow where a dedicated process polls an inbox, injects emails into the agent via `--prompt-file`, and replies with the output.
+**Rule: This is a Stage 2 workflow. If a user asks you to integrate an agent with email or run it as a background service answering messages, you MUST read and implement the rules specifically found in [`MAILBOX.md`](./MAILBOX.md) and deploy the optional `mailbox-daemon-addon` scaffold.** Do not attempt to embed email IMAP/SMTP protocols into `chat.py` or the agent's tools directly.
 
 ## 8. Todo Checklist Tracking Strategy
 **Rule: Always use Markdown Checkbox Lists for agent tasks tracking.**

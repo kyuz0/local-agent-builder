@@ -51,3 +51,21 @@ After reading a massive file or making a web search, use `think_tool` to analyze
 </Show Your Thinking>
 ```
 This inserts a structural pause into the LLM's autoregressive generation loop, sharply improving downstream tool parameters and reducing hallucinations on large chunks of retrieved data.
+
+## 5. Anti-Looping Traps (CRITICAL for Local LLMs)
+Small local LLMs (under 32B parameters) possess notoriously weak state-tracking capabilities. If they use a tool (like `write_todos` or `think_tool`) and it succeeds without drastically altering the semantic context, their attention mechanisms will heavily weight the exact same tokens and repeat the identical tool call infinitely. 
+
+You MUST inject a strict anti-looping directive into the Orchestrator and every Sub-Agent's system prompt:
+
+```markdown
+<Anti-Looping>
+NEVER call the exact same tool with the exact same arguments consecutively. 
+If you just used `write_todos` to track your plan, DO NOT call it again in the next step. You must forcefully execute the next logical step in your plan (e.g., delegate the task, read a file, or write a report).
+If you find yourself caught in a loop, immediately summarize your findings and stop.
+</Anti-Looping>
+```
+
+## 6. String Interpolation Safety (Python Runtime Trap)
+When giving generic instructions or placeholders within a prompt, **NEVER** use single braces `{}` (e.g. `{run_folder}`) unless that variable is explicitly passed to Python's `.format()` method during agent initialization in `chat.py`. 
+If you generate a bare `{placeholder}` in a Python system prompt string and the scaffold calls `.format(date=current_date)`, Python will throw a fatal `KeyError` and crash the application instantly. 
+To safely write structural placeholders in prompt templates, use double-braces `{{placeholder}}` or angle brackets `<placeholder>`.

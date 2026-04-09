@@ -28,16 +28,23 @@ def _get_tool_rule(tool_name: str, rule_key: str, default_val: int) -> int:
     return default_val
 
 def with_quota(func):
-    """Decorator to enforce quotas dynamically based on the function's name."""
+    """Decorator to enforce quotas dynamically based on the function's name and surface full diagnostic tracebacks safely."""
+    import traceback
     if asyncio.iscoroutinefunction(func):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
             if err := check_quota(func.__name__): return err
-            return await func(*args, **kwargs)
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                return f"CRITICAL TOOL EXECUTION ERROR: {func.__name__} failed internally.\n\nException Details:\n{traceback.format_exc()}"
         return async_wrapper
     else:
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
             if err := check_quota(func.__name__): return err
-            return func(*args, **kwargs)
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                return f"CRITICAL TOOL EXECUTION ERROR: {func.__name__} failed internally.\n\nException Details:\n{traceback.format_exc()}"
         return sync_wrapper

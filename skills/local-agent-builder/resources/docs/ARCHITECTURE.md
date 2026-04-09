@@ -1,9 +1,14 @@
 # Architecture Rules for Local Agents
 
-When designing a new local agent, you must actively collaborate with the user to determine the best architecture. **Do not assume an architecture.** Instead, ask the user questions and offer the following options to align on the right approach based on their task's complexity, context needs, and required tools:
+When designing a new local agent, you must evaluate the best architecture for the user based on the complexity of their task.
+
+> [!CAUTION]
+> **ANTI-PATTERNS (WHAT NOT TO DO):**
+> 1. **Do NOT ask the user what model they are using.** The scaffold is pre-optimized for small local LLMs (e.g., via config quotas, context isolation, and prompt engineering). Assume the user is using a small local LLM.
+> 2. **Do NOT design parallel execution pipelines.** Local API servers heavily queue concurrent requests, drastically reducing throughput. Design **sequential** agent logic (e.g., step 1 finishes, then step 2 starts). Do not use `asyncio.gather` for parallel agent execution.
 
 > [!IMPORTANT]
-> Once an architecture is carefully chosen, you **MUST** read [`PROMPTING.md`](./PROMPTING.md) for strict guidelines on crafting system instructions and formatting prompt engineering patterns for local models.
+> Once an architecture is carefully chosen based on the paradigms below, you **MUST** read [`PROMPTING.md`](./PROMPTING.md) for strict guidelines on crafting system instructions and formatting prompt engineering patterns for local models.
 
 ## 1. The Flat Agent (Simple Tasks)
 **Guidance: Propose this for straightforward tasks that require minimal context.**

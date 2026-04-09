@@ -1,11 +1,13 @@
 from typing import Dict, List
 import os
 import re
+import contextvars
 from agent_framework import tool
 from tools.core import with_quota, _get_tool_rule
 
 # --- WORKSPACE FILE SYSTEM ---
 _IN_MEMORY_FS: Dict[str, str] = {}
+session_dir_ctx = contextvars.ContextVar('session_dir', default="")
 
 def _get_workspace_type() -> str:
     from config import cfg
@@ -16,18 +18,32 @@ def _get_workspace_dir() -> str:
     return cfg.get("settings", {}).get("workspace", {}).get("dir", ".")
 
 def _get_safe_path(filename: str) -> str:
-    clean_name = os.path.basename(filename)
-    if not clean_name or clean_name != filename: return ""
+    # Safely allow subdirectories while blocking traversal hacks
+    if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+        return ""
+    
+    session_dir = session_dir_ctx.get()
+    if session_dir:
+        filename = os.path.join(session_dir, filename)
+
     if _get_workspace_type() == "disk":
-        return os.path.join(_get_workspace_dir(), clean_name)
-    return clean_name
+        return os.path.join(_get_workspace_dir(), filename)
+    return filename
 
 def get_workspace_files() -> List[str]:
     """Helper for TUI to list files agnostic of storage backend."""
+    session_dir = session_dir_ctx.get()
+    
     if _get_workspace_type() == "disk":
         d = _get_workspace_dir()
+        if session_dir:
+            d = os.path.join(d, session_dir)
         if not os.path.isdir(d): return []
-        return [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
+        return [os.path.join(session_dir, f) if session_dir else f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
+        
+    if session_dir:
+        prefix = session_dir + "/"
+        return [k for k in _IN_MEMORY_FS.keys() if k.startswith(prefix)]
     return list(_IN_MEMORY_FS.keys())
 
 def get_workspace_file_content(filename: str) -> str | None:
@@ -64,7 +80,9 @@ def read_workspace_file(filename: str, start_line: int = 1, end_line: int = -1) 
             
         chunk = "\n".join(lines[start - 1:end])
         return f"--- {filename} [Lines {start}-{end} of {total}] ---\n{chunk}"
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        import traceback
+        return f"Error: {e}\n\nTraceback:\n{traceback.format_exc()}"
 
 @tool
 @with_quota
@@ -74,14 +92,18 @@ def write_workspace_file(filename: str, content: str) -> str:
         path = _get_safe_path(filename)
         if not path: return f"Error: Invalid filename '{filename}'."
         if _get_workspace_type() == "disk":
-            os.makedirs(_get_workspace_dir(), exist_ok=True)
+            parent_dir = os.path.dirname(path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
             return f"Wrote '{filename}' to disk."
         else:
             _IN_MEMORY_FS[path] = content
             return f"Wrote '{filename}' to memory."
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        import traceback
+        return f"Error: {e}\n\nTraceback:\n{traceback.format_exc()}"
 
 @tool
 @with_quota
@@ -126,7 +148,9 @@ def grep_workspace_file(filename: str, pattern: str, context_lines: int = 2) -> 
                 out.append(f"{j + 1:04d}{prefix}{lines[j]}")
                 
         return "\n".join(out)
-    except Exception as e: return f"Grep Error: {e}"
+    except Exception as e:
+        import traceback
+        return f"Grep Error: {e}\n\nTraceback:\n{traceback.format_exc()}"
 
 @tool(approval_mode="always_require")
 @with_quota
@@ -144,4 +168,6 @@ def remove_workspace_file(filename: str) -> str:
                 del _IN_MEMORY_FS[path]
                 return f"Deleted: {filename}"
         return f"Error: '{filename}' not found."
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        import traceback
+        return f"Error: {e}\n\nTraceback:\n{traceback.format_exc()}"

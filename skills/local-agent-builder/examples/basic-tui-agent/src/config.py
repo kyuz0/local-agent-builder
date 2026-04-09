@@ -9,8 +9,12 @@ def _get_config_path_from_args():
             return os.path.abspath(sys.argv[i+1])
     return None
 
-_AGENT_NAME = "basic-tui-agent"
-_DEFAULT_CONFIG_DIR = os.path.expanduser(f"~/.{_AGENT_NAME}")
+# --- APPLICATION IDENTITY ---
+APP_NAME = "basic-tui-agent"              # Used for config/log folders
+APP_TITLE = "Basic TUI Agent"             # Used for UI branding
+APP_DESCRIPTION = "Basic TUI Agent Scaffold"
+
+_DEFAULT_CONFIG_DIR = os.path.expanduser(f"~/.{APP_NAME}")
 _CONFIG_PATH = _get_config_path_from_args() or os.path.join(_DEFAULT_CONFIG_DIR, "config.yaml")
 
 _DEFAULTS = {

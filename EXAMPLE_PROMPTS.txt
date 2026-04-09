@@ -9,29 +9,33 @@ The following are example prompts you can use to instruct a coding assistant to 
 **Copy and paste the following prompt to your coding assistant:**
 
 ```text
-Using the local-agent-builder skill, build a "Deep Research Agent" that can perform extensive web-based research and document analysis. 
+Using the local-agent-builder skill, build a Deep Research Agent that can perform extensive web-based research and document analysis. 
 
-Please adhere to the strict architectural scaffold and ensure the following hierarchical design and features are met:
+Agent Architecture
 
-### Architecture Hierarchy
-1. **Orchestrator Agent**:
-   - MUST NOT have direct access to the `web_search` tool.
-   - Responsible for creating a structured TODO list outlining the research phases.
-   - For each phase, it dispatches specialized "Search Sub-Agents" to gather information. (Simple tasks may only need one dispatch; complex tasks require scoping different research angles).
-   - Responsible for writing the user's original query to `query.md` and producing a final `final_report.md` with a highly professional structure.
+1. Orchestrator Agent:
+   - Scope: Serves as the primary task manager and reporter. It breaks down the main user query into actionable research tasks and synthesizes the final report.
+   - Instructions: Creates a TODO list outlining the research phases. For each phase, it dispatches specialized Search Sub-Agents to gather information (simple tasks may only need one dispatch; complex tasks require scoping different research angles). It must write the user's original query to query.md and produce a final final_report.md with a highly professional structure.
+   - Tooling Guidelines: Provide tools for task management and file writing (e.g., delegate_search_task, write_todos). Do not give this agent web search or reading capabilities, as that breaks the delegation model and forces the orchestrator to do the heavy lifting.
 
-2. **Search Sub-Agent**:
-   - Receives the specific research task from the Orchestrator. 
-   - Uses the `web_search` tool to find relevant links.
-   - Fetches the links to the local workspace.
-   - Delegates the actual reading and parsing of the downloaded pages to a nested "Page Analyzer Sub-Agent".
+2. Search Sub-Agent:
+   - Scope: Acts as the web crawler to find relevant pages and download them for deeper analysis.
+   - Instructions: Receives the specific research task from the Orchestrator. It MUST NOT hallucinate or guess URLs from its internal knowledge. The strict workflow must be: 1. Use `web_search` to find live, verified links. 2. Fetch those specific links to the local workspace. 3. Delegate the actual reading and parsing of the downloaded pages to the nested Page Analyzer Sub-Agent. 4. If the Page Analyzer surfaces new "Read More" links from the document, the Search Sub-Agent can then fetch those new targeted links. 5. When returning your final findings back to the Orchestrator, you MUST explicitly include all URLs and sources used to compile the answer, ensuring the Orchestrator can provide proper citations in its final report.
+   - Tooling Guidelines: Needs web capabilities to find and fetch links (e.g., web_search, fetch_url_to_workspace). It should not read the files itself, so withhold reading and grepping tools to force delegation to the Analyzer.
 
-3. **Page Analyzer Sub-Agent**:
-   - Receives the original research context and the specific target query from the Search Sub-Agent.
-   - Capable of reading the entire document OR, if the page is too large, using the `grep_workspace_file` tool to quickly extract relevant sections.
-   - Must be specifically instructed to extract and surface any relevant "Read More" links, navigation menus, or references back to the Search Sub-Agent, allowing the Search Sub-Agent to continue diving deeper into rabbit holes if necessary.
+3. Page Analyzer Sub-Agent:
+   - Scope: Focuses exclusively on reading and extracting precise data from individual documents already downloaded to the local workspace.
+   - Instructions: Receives the original research context and the specific target query from the Search Sub-Agent. If the target is a rich document (PDF, Image, DOCX), it MUST convert it using a parsing tool first. If the plaintext page is large, it MUST use `grep_workspace_file` to locate specific target keywords (like dates, names, or "born"). Once the relevant line numbers are identified, it can use `read_workspace_file` with precise `start_line` and `end_line` bounds to read the surrounding context efficiently. It MUST extract and surface any relevant "Read More" links, navigation menus, or references explicitly back to the Search Sub-Agent, allowing the parent Search Sub-Agent to continue diving down rabbit holes if necessary.
+   - Tooling Guidelines: Only equip this agent with local file parsing tools (e.g., read_workspace_file, grep_workspace_file, and rich document parsers). It should have zero web-fetching capabilities, ensuring it stays focused purely on reading the data already on the disk.
 
-### Operational Requirements
-- **Directory Isolation**: For every distinct user research run, the Orchestrator MUST create an isolated sub-folder sequentially (e.g., `run_00001/`) inside the current workspace. All files for that run (`query.md`, `todos.md`, downloaded HTML/Markdown pages, and `final_report.md`) must be saved within this sub-folder.
-- **Configurable Quotas**: Every single tool across all agents (including sub-agent delegations) MUST be heavily restricted with quotas in the `config.yaml` to prevent infinite web-scraping recursion.
+Operational Requirements
+- Strict Directory Path Management: The application code MUST handle directory isolation automatically:
+  1. Create a timestamped isolated folder per run/session (e.g., `run_TIMESTAMP/`).
+  2. File tools MUST automatically map all read and write operations into this run folder.
+  3. Agents MUST NOT be aware of the run folder. They should read and write files directly (e.g., `query.md`, `final_report.md`).
+  4. Downloaded pages MUST be named using a url-slug + timestamp to prevent collisions (e.g., `microsoft_ai_research_143022.md`). NEVER allow the creation of separate subfolders.
+- Anti-Looping Traps: You MUST explicitly bake the `<Anti-Looping>` XML block (from PROMPTING.md) into the system instructions of BOTH the Orchestrator and every Sub-Agent to prevent infinite retry loops on tool failures.
+- Stop Early Conditions: You MUST explicitly instruct the Orchestrator, Search Sub-Agent, and Page Analyzer to STOP working immediately when they believe they have enough information to confidently answer the user's query. Explicitly tell them: "Do NOT visit all links or max out your quotas. If you have found the answer corroborated by at least 2 strong sources, stop immediately and return your findings."
+- Adaptive Reporting: Instruct the Orchestrator to dynamically determine the `final_report.md` template structure (simple list vs. complex sections like Methodology/Sources) based strictly on the complexity of the original user query. 
+- Configurable Quotas: Every single tool across all agents (including sub-agent delegations) MUST be heavily restricted with quotas in the config.yaml to prevent infinite web-scraping recursion.
 ```
