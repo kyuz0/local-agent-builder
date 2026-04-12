@@ -5,7 +5,8 @@ When designing a new local agent, you must evaluate the best architecture for th
 > [!CAUTION]
 > **ANTI-PATTERNS (WHAT NOT TO DO):**
 > 1. **Do NOT ask the user what model they are using.** The scaffold is pre-optimized for small local LLMs (e.g., via config quotas, context isolation, and prompt engineering). Assume the user is using a small local LLM.
-> 2. **Do NOT design parallel execution pipelines.** Local API servers heavily queue concurrent requests, drastically reducing throughput. Design **sequential** agent logic (e.g., step 1 finishes, then step 2 starts). Do not use `asyncio.gather` for parallel agent execution.
+> 2. **Do NOT design unbounded parallel execution pipelines.** When writing tools that spawn multiple sub-agents (e.g. `delegate_tasks`), you MUST use an `asyncio.Semaphore` tied to the user's configured `max_concurrency`. This ensures that even if an agent delegates 50 tasks at once, they queue gracefully and never exceed the configured maximum concurrency limits. Furthermore, to prevent recursive deadlocks, a parent agent waiting on gathering its children MUST yield its semaphore token back to the pool via `contextvars` (see `src/chat.py` for implementation).
+> 3. **Concurrent vs Sequential Confusion:** Do NOT instruct the Orchestrator to batched-delegate dependent tasks (e.g., `Task B requires Task A`). Prompts must strictly guide the agent to perform sequential logic for dependent chains, reserving `asyncio.gather` strictly for independent prongs of execution.
 
 > [!IMPORTANT]
 > Once an architecture is carefully chosen based on the paradigms below, you **MUST** read [`PROMPTING.md`](./PROMPTING.md) for strict guidelines on crafting system instructions and formatting prompt engineering patterns for local models.
@@ -89,7 +90,7 @@ Managing context windows is critical for local LLMs. You must actively prevent "
 2.  **Strict Chunking (Read Limits):** Enforce rigid read limits in your extraction tools. Never dump raw web pages or massive files into the agent; always restrict readings to a maximum number of lines (e.g., 500-line chunks) or strict token limits.
 3.  **Tool Quotas (Max Calls):** Strictly cap the number of times an agent can invoke specific tools using `@with_quota` (e.g., max 3 scraper retries). This prevents models from entering infinite extraction loops that exponentially bloat context history.
 
-**Reference Implementation:** Do not write delegation loop handlers from scratch. Simply clone and adapt the `delegate_analysis` function explicitly documented in the scaffold at `examples/basic-tui-agent/src/chat.py`.
+**Reference Implementation:** Do not write delegation loop handlers from scratch. Simply clone and adapt the `delegate_tasks` function explicitly documented in the scaffold at `examples/basic-tui-agent/src/chat.py`.
 
 ## 3. Strict Workflow DAGs (Deterministic Pipelines)
 

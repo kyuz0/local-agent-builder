@@ -2,7 +2,9 @@ api:
   openai_base_url: http://localhost:8080/v1
   openai_model: local-model
 settings:
-  enable_thinking: true
+  enable_thinking: false
+  concurrency:
+    max_concurrent_tasks: 1
   quotas:
     fetch_url_to_workspace: 5
     write_workspace_file: 20

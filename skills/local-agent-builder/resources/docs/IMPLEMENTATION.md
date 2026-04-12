@@ -177,18 +177,23 @@ For advanced PDF layout interpretation or heavy OCR via local subprocess executi
 ## 6. Sub-Agent Delegation with TUI Streaming
 **Rule: To enable deeply nested sub-agents with live UI token streams, DO NOT use `.as_tool()`.**
 Instead, build a manual wrapper that propagates async streams up to the chat UI. 
-You **MUST** strictly clone the pattern implemented in `examples/basic-tui-agent/src/chat.py` (`delegate_analysis`) and the `handle_agent_update` intercept block. Those scaffold files serve as the blueprint for complex TUI handling.
+You **MUST** strictly clone the pattern implemented in `examples/basic-tui-agent/src/chat.py` (`delegate_tasks`) and the `handle_agent_update` intercept block. Those scaffold files serve as the blueprint for complex TUI handling.
 
 > [!WARNING]
 > **CRITICAL SUB-AGENT CODING RULES:**
 > 1. **Location:** You **MUST** define delegation tools *inside* `create_local_agent()` in `chat.py`. Do NOT abstract sub-agent creation into `tools/` files. Defining them inside `chat.py` is required to capture `subagent_callback` and stream child agent reasoning/text back to the UI. If you put them in `tools/`, the UI will freeze and show nothing!
 > 2. **Decorator:** When defining a delegation tool using the `@tool` decorator, ALWAYS provide an explicit `description` argument (e.g., `@tool(name="delegate_task", description="Highly detailed instructions...")`). Relying only on docstrings for complex sub-agent delegation tools often results in `Error: Function Failed` due to the Parent LLM failing to build the correct JSON schema.
-> 3. **No Hallucinated State:** Do NOT invent global state variables or undeclared counter functions (like `_get_next_id()`) to dynamically name your sub-agents in a loop. Subagents do not need unique numeric IDs. Hardcode a static name (e.g., `name="SearchAgent"`) when passing it to `client.as_agent()`. The framework easily supports repeated instantiation of the same-named sub-agent. Hallucinating these functions will cause `NameError` and break the delegation.
+> 3. **No Hallucinated State:** Do NOT invent global state variables or undeclared counter functions (like `_get_next_id()`) to dynamically name your sub-agents in a loop. Subagents do not need unique numeric IDs. Hardcode a static name (e.g., `name="SearchAgent"`) when passing it to `client.as_agent()`, or use string sanitization on a passed argument (e.g. `f"SubAgent_{task_name}"`).
 > 4. **Dependency Ordering (CRITICAL):** Because delegation tools are local closure functions (`async def ...`) inside `create_local_agent()`, Python evaluates them sequentially. If Sub-Agent A needs to be given a delegation tool to dispatch Sub-Agent B, you **MUST** define Sub-Agent B's delegation tool completely *before* Sub-Agent A's tool in the file. If you define them out of order, passing it into `tools=[...]` will throw a `NameError`, or if you simply omit it to avoid the error, the parent agent will spin infinitely trying to call a tool it lacks the schema for!
 
-**Customizing UI Output:** When triggering the stream callback, you may explicitly pass `agent_name` to correctly label the nested stream in the UI console:
+### Bounded Concurrency Implementations
+When implementing concurrent scatter-gather operations:
+1. Ensure you utilize an `asyncio.Semaphore` loaded from the local configurations to throttle the event loop natively, protecting the machine from queue exhaustion.
+2. Rely natively on the existing `tool_quotas_ctx` `ContextVar`. Do not clear or reset it inside child coroutines. Because Python's `asyncio` inherits `ContextVars`, all spun-up coroutines will intrinsically mutate the shared quota dictionary pool, preventing the collective suite of agents from bypassing total hardware constraints.
+
+**Customizing UI Output:** When triggering the stream callback across overlapping threads, you MUST explicitly pass `agent_name` to correctly label the nested streams dynamically in the UI console:
 ```python
-await subagent_callback(update, is_subagent=True, agent_name="DeepSearchAgent")
+await subagent_callback(update, is_subagent=True, agent_name=f"SubAgent_{task_name}")
 ```
 
 ## 7. Headless Execution (Cron/Batch processing)

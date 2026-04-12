@@ -236,6 +236,18 @@ class AgentMessageWidget(Static):
         self.text += new_text
         self.update(Markdown(f"**{self.author}:**\n{self.text}"))
 
+class UserMessageWidget(Static):
+    def __init__(self, query: str):
+        super().__init__(Markdown(f"**User (Click to Copy):**\n{query}"), classes="user-bubble")
+        self.query = query
+
+    def on_click(self) -> None:
+        try:
+            self.app.copy_to_clipboard(self.query)
+            self.app.notify("Copied prompt to clipboard!")
+        except Exception as e:
+            self.app.notify(f"Copy failed: {e}", severity="error")
+
 class ProcessingWidget(Static):
     """Widget to display a processing indicator before the first response."""
     DOTS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -275,10 +287,11 @@ class ToolCallWidget(Collapsible):
     """Widget to display a tool call and its result."""
     DOTS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-    def __init__(self, name: str, call_id: str, is_subagent: bool = False):
+    def __init__(self, name: str, call_id: str, is_subagent: bool = False, agent_name: str = None):
         self.call_id = call_id
         self.tool_name = name
         self.is_subagent = is_subagent
+        self.agent_name = agent_name
         self.args_text = ""
         self.result_text = ""
         self._done = False
@@ -291,7 +304,7 @@ class ToolCallWidget(Collapsible):
         self.result_log = RichLog(wrap=True, markup=True, highlight=True, min_width=20)
         self.result_log.border_title = "Result"
         
-        agent_label = "Sub-Agent" if is_subagent else "Agent"
+        agent_label = self.agent_name if self.agent_name else ("Sub-Agent" if is_subagent else "Agent")
         title = f"\N{HAMMER AND WRENCH} \\[{agent_label}] {name} {self.DOTS_FRAMES[0]}"
         css_class = "subagent-tool" if is_subagent else "orchestrator-tool"
         super().__init__(
@@ -311,7 +324,7 @@ class ToolCallWidget(Collapsible):
             return
         self._frame = (self._frame + 1) % len(self.DOTS_FRAMES)
         elapsed = datetime.now() - self._start_time
-        agent_label = "Sub-Agent" if self.is_subagent else "Agent"
+        agent_label = self.agent_name if self.agent_name else ("Sub-Agent" if self.is_subagent else "Agent")
         self.title = f"\N{HAMMER AND WRENCH} \\[{agent_label}] {self.tool_name} {self.DOTS_FRAMES[self._frame]} ({elapsed.total_seconds():.1f}s)"
 
     def append_args(self, text: str):
@@ -325,19 +338,20 @@ class ToolCallWidget(Collapsible):
         self.result_log.write(self.result_text)
         self._done = True
         elapsed = datetime.now() - self._start_time
-        agent_label = "Sub-Agent" if self.is_subagent else "Agent"
+        agent_label = self.agent_name if self.agent_name else ("Sub-Agent" if self.is_subagent else "Agent")
         self.title = f"\N{HAMMER AND WRENCH} \\[{agent_label}] {self.tool_name} \N{WHITE HEAVY CHECK MARK} ({elapsed.total_seconds():.1f}s)"
 
     def mark_stopped(self):
         self._done = True
         elapsed = datetime.now() - self._start_time
-        agent_label = "Sub-Agent" if self.is_subagent else "Agent"
+        agent_label = self.agent_name if self.agent_name else ("Sub-Agent" if self.is_subagent else "Agent")
         self.title = f"\N{HAMMER AND WRENCH} \\[{agent_label}] {self.tool_name} \N{OCTAGONAL SIGN} ({elapsed.total_seconds():.1f}s)"
 
 class BasicTuiAgent(App):
     CSS = """
     #chat-container { height: 1fr; scrollbar-color: green; }
     .user-bubble { margin: 1 2; padding: 1; background: #333333; color: white; text-align: right; }
+    .user-bubble:hover { background: #444444; color: #aaffaa; }
     .agent-bubble { margin: 1 2; padding: 1; color: white; }
     .orchestrator-tool { border-left: vkey blue; margin: 0 2 1 2; }
     .subagent-tool { border-left: vkey purple; margin: 0 2 1 6; }
@@ -607,7 +621,7 @@ class BasicTuiAgent(App):
                 if content.call_id:
                     state["current_call_id"] = content.call_id
                     if content.call_id not in state["calls"]:
-                        widget = ToolCallWidget(name=content.name, call_id=content.call_id, is_subagent=is_subagent)
+                        widget = ToolCallWidget(name=content.name, call_id=content.call_id, is_subagent=is_subagent, agent_name=source_name)
                         state["calls"][content.call_id] = widget
                         chat.mount(apply_depth_style(widget))
                     else:
@@ -667,13 +681,16 @@ class BasicTuiAgent(App):
         token = tool_quotas_ctx.set(sub_quotas)
         
         chat = self.query_one("#chat-container", VerticalScroll)
-        chat.mount(Static(Markdown(f"**User:**\n{query}"), classes="user-bubble"))
+        chat.mount(UserMessageWidget(query))
         
-        # Set up subagent callback context
-        subagent_state = {"calls": {}, "current_call_id": None, "current_msg": None}
+        # Set up subagent callback context dict
+        subagent_states = {}
 
         async def ui_callback(update, is_subagent=True, **kwargs):
-            await self.handle_agent_update(update, subagent_state, chat, is_subagent=is_subagent, agent_name=kwargs.get("agent_name"))
+            aname = kwargs.get("agent_name", "Sub-Agent")
+            if aname not in subagent_states:
+                subagent_states[aname] = {"calls": {}, "current_call_id": None, "current_msg": None}
+            await self.handle_agent_update(update, subagent_states[aname], chat, is_subagent=is_subagent, agent_name=aname)
             
         # Create agent (re-reads config) and get session (None if conversational memory disabled)
         agent, session = create_local_agent(subagent_callback=ui_callback)

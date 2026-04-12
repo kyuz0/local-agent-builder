@@ -24,6 +24,9 @@ _DEFAULTS = {
     },
     "settings": {
         "enable_thinking": False,
+        "concurrency": {
+            "max_concurrent_tasks": 1
+        },
         "quotas": {},
         "workspace": {
             "type": "memory",
