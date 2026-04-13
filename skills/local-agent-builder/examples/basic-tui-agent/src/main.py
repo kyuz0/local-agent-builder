@@ -1083,8 +1083,16 @@ async def run_cli(prompt: str = None, prompt_file: str = None):
             sub_quotas[k] = {"used": 0, "limit": v["limit"], "rules": v.get("rules", {})}
     token = tool_quotas_ctx.set(sub_quotas)
 
-    async def cli_subagent_callback(update, is_subagent=True, **kwargs):
+    async def cli_subagent_callback(update, is_subagent=True, is_done=False, **kwargs):
         agent_name = kwargs.get("agent_name") or getattr(update, "author_name", None) or "Sub-Agent"
+        
+        if is_done:
+            sys.stdout.write(f"\n\033[92m[{agent_name}] Finished.\033[0m\n")
+            return
+            
+        if update is None:
+            return
+            
         for content in update.contents:
             log_stream_content(agent_name, "content", {"type": content.type})
             if content.type == "function_call" and content.call_id:
