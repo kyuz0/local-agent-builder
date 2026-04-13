@@ -76,18 +76,26 @@ Secrets belong inside `.env` via `python-dotenv`, while runtime states (`enable_
 
 Reference `examples/basic-tui-agent/src/config.py` for exact merging implementation and early-stage parameter extraction.
 
-### Session Logging Recipe
+### Session Persistence Recovery Recipe
 
-For debugging and traceability, implement a session-level JSON logger that captures prompts, reasoning traces, text outputs, and function calls.
+The scaffold implements a simple mechanism to manage session history. Both the agent's conversational memory and the visual TUI state are saved together into the local filesystem so they can be reloaded later.
 
-Toggle logging via `config.yaml`:
+Toggle persistence via `config.yaml`:
 ```yaml
 settings:
-  enable_session_logging: false
+  enable_session_persistence: true
 ```
 
+When enabled, interactions are natively aggregated into payloads saved in `~/.{AGENT_NAME}/sessions/session_{uuid}.json`.
+
+**TUI Recovery Commands:**
+The scaffold natively implements conversational recovery without missing a beat visually. Instruct users they can type:
+- `/sessions` to list recent persistent histories.
+- `/restore [id]` to wipe the current canvas and seamlessly recreate the interface exactly as it was.
+- `/resume` to automatically load the most recent session file.
+
 > [!IMPORTANT]
-> When using the `basic-tui-agent` scaffold to create new applications, you **MUST** update the `AGENT_NAME` and `AGENT_DESCRIPTION` variables at the top of `src/main.py`. These variables dynamically build the application UI components, dictate the auto-generated ASCII-art banner on the welcome screen, and shape the hidden folder where session logs are saved (e.g. `~/.<sanitized-agent-name>-logs/session_<uuid>.json`).
+> When using the `basic-tui-agent` scaffold to create new applications, you **MUST** update the `AGENT_NAME` and `AGENT_DESCRIPTION` variables at the top of `src/main.py`. These variables dynamically build the application UI components, dictate the auto-generated ASCII-art banner on the welcome screen, and shape the hidden folder where sessions are saved (e.g. `~/.<sanitized-agent-name>/sessions/session_<uuid>.json`).
 
 ### Conversational Memory Recipe
 

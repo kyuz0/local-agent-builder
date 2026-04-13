@@ -1,7 +1,7 @@
 import os
 import asyncio
 from agent_framework.openai import OpenAIChatCompletionClient
-from agent_framework import tool
+from agent_framework import tool, AgentSession
 from tools import WORKSPACE_TOOLS, tool_quotas_ctx, with_quota, think_tool
 from prompts import ORCHESTRATOR_INSTRUCTIONS, SUBAGENT_INSTRUCTIONS, SUBAGENT_DELEGATION_INSTRUCTIONS
 import datetime
@@ -18,7 +18,7 @@ def _build_client():
         model=config.cfg["api"]["openai_model"]
     )
 
-def create_local_agent(subagent_callback=None):
+def create_local_agent(subagent_callback=None, session_data=None):
     """
     Returns (agent, session). Session is None when conversational memory is disabled.
     Agent is re-created each call to pick up config changes (thinking toggle).
@@ -66,6 +66,9 @@ def create_local_agent(subagent_callback=None):
                     for c in update.contents:
                         if c.type == "text" and c.text:
                             final_text += c.text
+                if subagent_callback:
+                    await subagent_callback(None, is_subagent=True, agent_name=f"SubAgent_{task_name}", is_done=True)
+
                 return f"## Result for {task_name}\n{final_text}\n---"
             finally:
                 holds_token.reset(token_setter)
@@ -139,7 +142,9 @@ def create_local_agent(subagent_callback=None):
     
     session = None
     if config.cfg["settings"].get("enable_conversational_memory", False):
-        if _session is None:
+        if session_data is not None:
+            _session = AgentSession.from_dict(session_data)
+        elif _session is None:
             _session = agent.create_session()
         session = _session
     

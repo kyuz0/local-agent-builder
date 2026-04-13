@@ -2,22 +2,23 @@ from datetime import datetime
 from textual import work, on
 from textual.app import App, ComposeResult
 from textual.widgets import Input, OptionList, Static, Collapsible, RichLog, Button
-from textual.containers import VerticalScroll, Horizontal
+from textual.containers import VerticalScroll, Horizontal, Vertical
 from rich.markdown import Markdown
 from chat import create_local_agent, reset_session
+import chat as chat_module
 import asyncio
 import json
 import config
-from agent_framework import Message
+from agent_framework import Message, Content
 from textual import events
 import os
-import json
 import uuid
 import re
 import sys
 import argparse
 from pathlib import Path
 import pyfiglet
+from tools import tool_quotas_ctx, WORKSPACE_TOOLS, get_workspace_files, get_workspace_file_content
 
 AGENT_NAME = config.APP_TITLE
 AGENT_DESCRIPTION = config.APP_DESCRIPTION
@@ -28,16 +29,30 @@ _current_text_by_source = {}
 _current_session_id = str(uuid.uuid4())
 
 def _write_log():
-    if not config.cfg["settings"].get("enable_session_logging", False):
+    if not config.cfg["settings"].get("enable_session_persistence", False):
         return
-        
-    log_dir = Path.home() / f".{config.APP_NAME}-logs"
+            
+    log_dir = Path.home() / f".{config.APP_NAME}" / "sessions"
     log_dir.mkdir(parents=True, exist_ok=True)
     
     log_file = log_dir / f"session_{_current_session_id}.json"
+    
+    payload = {
+        "timestamp": datetime.now().isoformat(),
+        "ui_events": _session_events,
+        "agent_session": None,
+        "session_id": _current_session_id
+    }
+    
+    if chat_module._session:
+        try:
+            payload["agent_session"] = chat_module._session.to_dict()
+        except Exception:
+            pass
+            
     try:
         with open(log_file, "w", encoding="utf-8") as f:
-            json.dump(_session_events, f, indent=2)
+            json.dump(payload, f, indent=2)
     except Exception:
         pass
 
@@ -108,6 +123,18 @@ def log_stream_content(source: str, content_type: str, raw_data_dict: dict):
             "timestamp": datetime.now().isoformat(),
             "source": source,
             "type": "function_result",
+            "data": raw_data_dict
+        }
+        _session_events.append(entry)
+        
+    elif content_type in ("subagent_start", "subagent_end"):
+        _current_text_by_source[source] = None
+        _current_call_by_source[source] = None
+        
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "source": source,
+            "type": content_type,
             "data": raw_data_dict
         }
         _session_events.append(entry)
@@ -370,7 +397,7 @@ class BasicTuiAgent(App):
     #command-list { height: auto; max-height: 15; padding: 0 1; }
     """
 
-    SLASH_COMMANDS = [("/stop", "Stop execution"), ("/new", "New conversation"), ("/exit", "Quit app"), ("/toggle_thinking", "Toggle reasoning trace capability"), ("/toggle_logging", "Toggle structured session logging"), ("/config", "Show current configuration"), ("/files", "Browse memory workspace files")]
+    SLASH_COMMANDS = [("/stop", "Stop execution"), ("/new", "New conversation"), ("/exit", "Quit app"), ("/toggle_thinking", "Toggle reasoning trace capability"), ("/toggle_persistence", "Toggle session history saving"), ("/config", "Show current configuration"), ("/files", "Browse memory workspace files"), ("/sessions", "List saved sessions"), ("/resume", "Resume a saved session")]
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-container")
@@ -391,14 +418,14 @@ class BasicTuiAgent(App):
         thinking_color = "green" if config.cfg["settings"]["enable_thinking"] else "red"
         memory = "ON" if config.cfg["settings"].get("enable_conversational_memory", False) else "OFF"
         memory_color = "green" if config.cfg["settings"].get("enable_conversational_memory", False) else "red"
-        logging_val = "ON" if config.cfg["settings"].get("enable_session_logging", False) else "OFF"
-        logging_color = "green" if config.cfg["settings"].get("enable_session_logging", False) else "red"
+        persistence_val = "ON" if config.cfg["settings"].get("enable_session_persistence", False) else "OFF"
+        persistence_color = "green" if config.cfg["settings"].get("enable_session_persistence", False) else "red"
         
         config_path = getattr(config, "_CONFIG_PATH", "Unknown")
         workspace_type = config.cfg.get("settings", {}).get("workspace", {}).get("type", "memory")
         workspace_dir = config.cfg.get("settings", {}).get("workspace", {}).get("dir", ".")
         workspace_disp = f"Disk ({workspace_dir})" if workspace_type == "disk" else "In-Memory"
-        status_line = f"  [dim]Config Loaded:[/dim] [bright_black]{config_path}[/bright_black]  [dim]Workspace:[/dim] [yellow]{workspace_disp}[/yellow]\n  [dim]Endpoint:[/dim] [cyan]{endpoint}[/cyan]  [dim]Model:[/dim] [cyan]{model}[/cyan]  [dim]Thinking:[/dim] [{thinking_color}]{thinking}[/{thinking_color}]  [dim]Conv Memory:[/dim] [{memory_color}]{memory}[/{memory_color}]\n  [dim]Session ID:[/dim] [bright_black]{_current_session_id}[/bright_black]  [dim]Logging:[/dim] [{logging_color}]{logging_val}[/{logging_color}]"
+        status_line = f"  [dim]Config Loaded:[/dim] [bright_black]{config_path}[/bright_black]  [dim]Workspace:[/dim] [yellow]{workspace_disp}[/yellow]\n  [dim]Endpoint:[/dim] [cyan]{endpoint}[/cyan]  [dim]Model:[/dim] [cyan]{model}[/cyan]  [dim]Thinking:[/dim] [{thinking_color}]{thinking}[/{thinking_color}]  [dim]Conv Memory:[/dim] [{memory_color}]{memory}[/{memory_color}]\n  [dim]Session ID:[/dim] [bright_black]{_current_session_id}[/bright_black]  [dim]Persistence:[/dim] [{persistence_color}]{persistence_val}[/{persistence_color}]"
         
         return Static(
             f"[bold green]{ascii_art}[/bold green]\n"
@@ -416,7 +443,8 @@ class BasicTuiAgent(App):
         self.query_one("#prompt-input", PromptInput).focus()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if getattr(self, "_file_picker_active", False): return
+        if getattr(self, "_file_picker_active", False) or getattr(self, "_session_picker_active", False):
+            return
         val = event.value
         opt_list = self.query_one("#command-list", OptionList)
         if val.startswith("/"):
@@ -440,6 +468,10 @@ class BasicTuiAgent(App):
             
         if getattr(self, "_file_picker_active", False):
             self._open_selected_file(query)
+            return
+
+        if getattr(self, "_session_picker_active", False):
+            await self._open_selected_session(query)
             return
 
         self.query_one("#command-list", OptionList).display = False
@@ -494,19 +526,43 @@ class BasicTuiAgent(App):
             chat = self.query_one("#chat-container", VerticalScroll)
             chat.mount(Static(Markdown(f"**System:**\nThinking capability is now **{state}**"), classes="agent-bubble"))
             chat.scroll_end(animate=False)
-        elif query == "/toggle_logging":
-            config.cfg["settings"]["enable_session_logging"] = not config.cfg["settings"].get("enable_session_logging", False)
+        elif query == "/toggle_persistence":
+            config.cfg["settings"]["enable_session_persistence"] = not config.cfg["settings"].get("enable_session_persistence", False)
             config.save_config()
-            state = "ON" if config.cfg["settings"]["enable_session_logging"] else "OFF"
+            state = "ON" if config.cfg["settings"]["enable_session_persistence"] else "OFF"
             chat = self.query_one("#chat-container", VerticalScroll)
-            msg = f"**System:**\nSession logging is now **{state}**."
-            if config.cfg["settings"]["enable_session_logging"]:
-                log_dir = Path.home() / f".{config.APP_NAME}-logs"
+            msg = f"**System:**\nSession persistence is now **{state}**."
+            if config.cfg["settings"]["enable_session_persistence"]:
+                log_dir = Path.home() / f".{config.APP_NAME}" / "sessions"
                 log_file = log_dir / f"session_{_current_session_id}.json"
-                msg += f"\nLogging to: `{log_file}`"
-                _write_log() # Force an initial write so the file exists
+                msg += f"\nSaving to: `{log_file}`"
+                _write_log()
             chat.mount(Static(Markdown(msg), classes="agent-bubble"))
             chat.scroll_end(animate=False)
+        elif query == "/sessions":
+            chat = self.query_one("#chat-container", VerticalScroll)
+            log_dir = Path.home() / f".{config.APP_NAME}" / "sessions"
+            if not log_dir.exists():
+                chat.mount(Static(Markdown("**System:**\nNo sessions found."), classes="agent-bubble"))
+            else:
+                files = sorted(log_dir.glob("session_*.json"), key=os.path.getmtime, reverse=True)
+                if not files:
+                    chat.mount(Static(Markdown("**System:**\nNo sessions found."), classes="agent-bubble"))
+                else:
+                    lines = ["**Saved Sessions:**\n"]
+                    for f in files[:10]:
+                        try:
+                            with open(f, "r") as fs:
+                                j = json.load(fs)
+                                ts = j.get("timestamp", "Unknown")
+                                sid = j.get("session_id", f.stem.replace('session_', ''))
+                                lines.append(f"- **ID:** `{sid}` (Date: {ts})")
+                        except Exception:
+                            lines.append(f"- Invalid session file: `{f.name}`")
+                    chat.mount(Static(Markdown("\n".join(lines)), classes="agent-bubble"))
+            chat.scroll_end(animate=False)
+        elif query == "/resume":
+            self._show_session_picker()
         elif query == "/config":
             chat = self.query_one("#chat-container", VerticalScroll)
             config_path = getattr(config, "_CONFIG_PATH", "Unknown")
@@ -524,12 +580,116 @@ class BasicTuiAgent(App):
         elif query: 
             log_prompt(query)
             self.run_agent(query)
+            
+    async def _load_session_by_id(self, sid: str):
+        chat = self.query_one("#chat-container", VerticalScroll)
+        log_dir = Path.home() / f".{config.APP_NAME}" / "sessions"
+        log_file = log_dir / f"session_{sid}.json"
+        
+        if not log_file.exists():
+            chat.mount(Static(Markdown(f"**System:**\nSession `{sid}` not found."), classes="agent-bubble"))
+            chat.scroll_end(animate=False)
+            return
+
+        try:
+            with open(log_file, "r") as f:
+                data = json.load(f)
+            
+            global _session_events, _current_session_id, _current_call_by_source, _current_text_by_source
+            ui_events = data.get("ui_events", [])
+            state_dict = data.get("agent_session", None)
+            
+            self._is_agent_running = False
+            self.workers.cancel_all()
+            
+            _session_events = ui_events
+            _current_session_id = sid
+            _current_call_by_source.clear()
+            _current_text_by_source.clear()
+            
+            chat_module.reset_session()
+            if state_dict:
+                chat_module.create_local_agent(session_data=state_dict)
+            else:
+                chat_module.create_local_agent()
+                
+            await self.reconstruct_ui_from_events(ui_events)
+            
+            chat.mount(Static(Markdown(f"**System:**\nSession `{sid}` restored successfully!"), classes="agent-bubble"))
+            chat.scroll_end(animate=False)
+            
+        except Exception as e:
+            chat.mount(Static(Markdown(f"**System:**\nFailed to restore session `{sid}`: {e}"), classes="agent-bubble"))
+            chat.scroll_end(animate=False)
+
+    async def reconstruct_ui_from_events(self, events: list):
+        chat = self.query_one("#chat-container", VerticalScroll)
+        await chat.remove_children()
+        chat.mount(self._banner_widget())
+        
+        active_tools = {}
+        for event in events:
+            source = event.get("source", "Agent")
+            is_subagent = source.startswith("SubAgent_")
+            etype = event.get("type")
+            data = event.get("data", {})
+            
+            depth = 1 if is_subagent else 0
+            
+            def apply_depth_style(widget):
+                if depth > 0:
+                    widget.styles.margin = (0, 2, 1, 2 + (4 * depth))
+                    widget.styles.border_left = ("vkey", "purple" if depth > 0 else "blue")
+                return widget
+            
+            if etype == "prompt" and source == "User":
+                chat.mount(UserMessageWidget(data.get("text", "")))
+            elif etype == "subagent_start":
+                status_widget = Static(f"[blue]▶[/blue] [bold]{source}[/bold] executing...", classes="agent-bubble")
+                chat.mount(apply_depth_style(status_widget))
+            elif etype == "subagent_end":
+                elapsed = data.get("elapsed", 0.0)
+                status_widget = Static(f"[green]✅[/green] [bold]{source}[/bold] finished ({elapsed:.1f}s)", classes="agent-bubble")
+                chat.mount(apply_depth_style(status_widget))
+            elif etype == "text":
+                msg = AgentMessageWidget(source)
+                msg.append_text(data.get("text", ""))
+                chat.mount(apply_depth_style(msg))
+            elif etype == "reasoning":
+                tw = ThinkingWidget()
+                tw.append(data.get("text", ""))
+                tw.finish()
+                chat.mount(apply_depth_style(tw))
+            elif etype == "function_call":
+                cid = data.get("call_id")
+                w = ToolCallWidget(data.get("name"), cid, is_subagent=is_subagent, agent_name=source)
+                w.append_args(data.get("arguments", ""))
+                active_tools[cid] = w
+                chat.mount(apply_depth_style(w))
+            elif etype == "function_result":
+                cid = data.get("call_id")
+                res = data.get("result", "")
+                if cid and cid in active_tools:
+                    active_tools[cid].set_result(str(res))
+        
+        self._safe_scroll_end(chat)
+
     def _safe_scroll_end(self, chat: VerticalScroll) -> None:
         """Scroll to the bottom only if the user is already near the bottom."""
         if chat.max_scroll_y - chat.scroll_y <= 3:
             chat.scroll_end(animate=False)
 
-    async def handle_agent_update(self, update, state, chat, is_subagent=False, agent_name=None):
+    async def handle_agent_update(self, update, state, chat, is_subagent=False, agent_name=None, is_done=False):
+        import time
+        if is_done and is_subagent:
+            widget = state.get(f"widget_{agent_name}")
+            if widget:
+                start_time = state.get(f"start_time_{agent_name}", time.time())
+                elapsed = time.time() - start_time
+                widget.update(f"[green]✅[/green] [bold]{agent_name}[/bold] finished ({elapsed:.1f}s)")
+                log_stream_content(agent_name, "subagent_end", {"elapsed": elapsed})
+            return
+
         # --- Extract reasoning_content from raw chunk delta ---
         raw_reasoning = None
         chat_update = getattr(update, "raw_representation", None)
@@ -560,6 +720,21 @@ class BasicTuiAgent(App):
                 widget.styles.margin = (0, 2, 1, 2 + (4 * depth))
                 widget.styles.border_left = ("vkey", "purple" if depth > 0 else "blue")
             return widget
+
+        # Check for first-time sub-agent invocation
+        if is_subagent and agent_name:
+            import time
+            spawned = state.setdefault("spawned_subagents", set())
+            if agent_name not in spawned:
+                spawned.add(agent_name)
+                state[f"start_time_{agent_name}"] = time.time()
+                # Mount a simple status indicator and store a reference to it
+                status_widget = Static(f"[blue]▶[/blue] [bold]{agent_name}[/bold] executing...", classes="agent-bubble")
+                state[f"widget_{agent_name}"] = status_widget
+                chat.mount(apply_depth_style(status_widget))
+                self._safe_scroll_end(chat)
+                log_stream_content(agent_name, "subagent_start", {})
+
 
         if raw_reasoning:
             log_stream_content(source_name, "reasoning", {"text": raw_reasoning})
@@ -670,7 +845,6 @@ class BasicTuiAgent(App):
         # session_token = session_dir_ctx.set(f"run_{int(time.time())}")
         
         # Initialize tool quotas from config
-        from tools import tool_quotas_ctx
         config_quotas = config.cfg.get("settings", {}).get("quotas", {})
         sub_quotas = {}
         for k, v in config_quotas.items():
@@ -686,11 +860,11 @@ class BasicTuiAgent(App):
         # Set up subagent callback context dict
         subagent_states = {}
 
-        async def ui_callback(update, is_subagent=True, **kwargs):
+        async def ui_callback(update, is_subagent=True, is_done=False, **kwargs):
             aname = kwargs.get("agent_name", "Sub-Agent")
             if aname not in subagent_states:
                 subagent_states[aname] = {"calls": {}, "current_call_id": None, "current_msg": None}
-            await self.handle_agent_update(update, subagent_states[aname], chat, is_subagent=is_subagent, agent_name=aname)
+            await self.handle_agent_update(update, subagent_states[aname], chat, is_subagent=is_subagent, agent_name=aname, is_done=is_done)
             
         # Create agent (re-reads config) and get session (None if conversational memory disabled)
         agent, session = create_local_agent(subagent_callback=ui_callback)
@@ -715,6 +889,18 @@ class BasicTuiAgent(App):
                     
                     if hasattr(update, "user_input_requests") and update.user_input_requests:
                         user_input_requests.extend(update.user_input_requests)
+                        
+                # -------------------------------------------------------------
+                # [!CAUTION] AGENT-FRAMEWORK SYNCHRONIZATION BUGFIX
+                # -------------------------------------------------------------
+                # The agent framework's ResponseStream only populates `session.state`
+                # via its `after_run` hooks AFTER the async generator exhausts entirely.
+                # Since _write_log is constantly called mid-stream by log_stream_content,
+                # the final file written during standard generation would often contain
+                # `{"state": {"in_memory": {}}}` because the stream hadn't reached its end yet.
+                # We definitively evaluate `_write_log()` here once the stream guarantees finalization.
+                _write_log()
+
 
             except Exception as e:
                 p_widget = state.get("processing_widget")
@@ -751,7 +937,6 @@ class BasicTuiAgent(App):
                     if target_widget and widget.approved:
                         args_dict = req.function_call.parse_arguments() or {}
                         # Statically find the python function to execute UI updates explicitly 
-                        from tools import WORKSPACE_TOOLS
                         tool_func = next((t for t in WORKSPACE_TOOLS if t.name == req.function_call.name), None)
                         
                         try:
@@ -766,7 +951,6 @@ class BasicTuiAgent(App):
                         target_widget.set_result(result_str)
                         
                         # Bypass the framework double-execution and just feed the literal explicitly back 
-                        from agent_framework import Content
                         new_inputs.append(Message("assistant", [req.function_call]))
                         new_inputs.append(Message("tool", [Content.from_function_result(
                             call_id=req.function_call.call_id,
@@ -785,7 +969,6 @@ class BasicTuiAgent(App):
                 # Push back upstream and flush state 
                 current_input = new_inputs
                 
-        from tools import tool_quotas_ctx
         tool_quotas_ctx.reset(token)
         self._is_agent_running = False
 
@@ -801,7 +984,6 @@ class BasicTuiAgent(App):
         panel.display = True
 
     def _show_file_picker(self) -> None:
-        from tools import get_workspace_files, get_workspace_file_content
         files = get_workspace_files()
         if not files:
             self._file_picker_files = []
@@ -815,10 +997,37 @@ class BasicTuiAgent(App):
         ]
         self._render_cmd_list()
 
-    def _display_file(self, filename: str, collapsed_by_default: bool = False) -> None:
-        from tools import get_workspace_file_content
-        from textual.containers import Vertical
+    def _show_session_picker(self) -> None:
+        log_dir = Path.home() / f".{config.APP_NAME}" / "sessions"
+        if not log_dir.exists():
+            chat = self.query_one("#chat-container", VerticalScroll)
+            chat.mount(Static(Markdown("**System:**\nNo sessions found."), classes="agent-bubble"))
+            chat.scroll_end(animate=False)
+            return
+            
+        files = sorted(log_dir.glob("session_*.json"), key=os.path.getmtime, reverse=True)
+        if not files:
+            chat = self.query_one("#chat-container", VerticalScroll)
+            chat.mount(Static(Markdown("**System:**\nNo sessions found."), classes="agent-bubble"))
+            chat.scroll_end(animate=False)
+            return
+            
+        self._session_picker_active = True
+        self._filtered_cmds = []
         
+        for f in files[:15]:
+            try:
+                with open(f, "r") as fs:
+                    j = json.load(fs)
+                    ts = j.get("timestamp", "Unknown")
+                    sid = j.get("session_id", f.stem.replace("session_", ""))
+                    self._filtered_cmds.append((sid, f"Date: {ts}"))
+            except Exception:
+                pass
+                
+        self._render_cmd_list()
+
+    def _display_file(self, filename: str, collapsed_by_default: bool = False) -> None:
         content = get_workspace_file_content(filename)
         if content is None: return
         
@@ -855,9 +1064,16 @@ class BasicTuiAgent(App):
         self._filtered_cmds = []
         self.query_one("#command-list", OptionList).display = False
 
+    async def _open_selected_session(self, session_id: str) -> None:
+        if not getattr(self, "_session_picker_active", False):
+            return
+        self._session_picker_active = False
+        self._filtered_cmds = []
+        self.query_one("#command-list", OptionList).display = False
+        await self._load_session_by_id(session_id)
+
 async def run_cli(prompt: str = None, prompt_file: str = None):
     """Run the agent in headless mode, streaming results to stdout."""
-    from tools import tool_quotas_ctx
     config_quotas = config.cfg.get("settings", {}).get("quotas", {})
     sub_quotas = {}
     for k, v in config_quotas.items():

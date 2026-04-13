@@ -17,7 +17,7 @@ settings:
       rules:
         max_matches: 10
   enable_conversational_memory: true
-  enable_session_logging: true
+  enable_session_persistence: true
   workspace:
     type: memory
     dir: .
