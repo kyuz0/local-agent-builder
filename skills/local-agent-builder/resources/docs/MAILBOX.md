@@ -2,7 +2,7 @@
 
 When building an agentic workflow that needs to be accessed via email, you must strictly implement the **Sasori** plugin pattern. 
 
-**Rule: Do NOT add IMAP/SMTP logic to `chat.py`. Email processing MUST be delegated to the global Sasori daemon.**
+**Rule: Do NOT add IMAP/SMTP logic to `app.py`. Email processing MUST be delegated to the global Sasori daemon.**
 
 This is an optional **Stage 2 Add-on**. You must instruct the user to install `packages/sasori` globally via `pipx`.
 

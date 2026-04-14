@@ -5,7 +5,7 @@ When designing a new local agent, you must evaluate the best architecture for th
 > [!CAUTION]
 > **ANTI-PATTERNS (WHAT NOT TO DO):**
 > 1. **Do NOT ask the user what model they are using.** The scaffold is pre-optimized for small local LLMs (e.g., via config quotas, context isolation, and prompt engineering). Assume the user is using a small local LLM.
-> 2. **Do NOT design unbounded parallel execution pipelines.** When writing tools that spawn multiple sub-agents (e.g. `delegate_tasks`), you MUST use an `asyncio.Semaphore` tied to the user's configured `max_concurrency`. This ensures that even if an agent delegates 50 tasks at once, they queue gracefully and never exceed the configured maximum concurrency limits. Furthermore, to prevent recursive deadlocks, a parent agent waiting on gathering its children MUST yield its semaphore token back to the pool via `contextvars` (see `src/chat.py` for implementation).
+> 2. **Do NOT design unbounded parallel execution pipelines.** When writing tools that spawn multiple sub-agents (e.g. `delegate_tasks`), you MUST use an `asyncio.Semaphore` tied to the user's configured `max_concurrency`. This ensures that even if an agent delegates 50 tasks at once, they queue gracefully and never exceed the configured maximum concurrency limits. Furthermore, to prevent recursive deadlocks, a parent agent waiting on gathering its children MUST yield its semaphore token back to the pool via `contextvars` (see `src/engine/orchestrator.py` for implementation).
 > 3. **Concurrent vs Sequential Confusion:** Do NOT instruct the Orchestrator to batched-delegate dependent tasks (e.g., `Task B requires Task A`). Prompts must strictly guide the agent to perform sequential logic for dependent chains, reserving `asyncio.gather` strictly for independent prongs of execution.
 
 > [!IMPORTANT]
@@ -90,7 +90,7 @@ Managing context windows is critical for local LLMs. You must actively prevent "
 2.  **Strict Chunking (Read Limits):** Enforce rigid read limits in your extraction tools. Never dump raw web pages or massive files into the agent; always restrict readings to a maximum number of lines (e.g., 500-line chunks) or strict token limits.
 3.  **Tool Quotas (Max Calls):** Strictly cap the number of times an agent can invoke specific tools using `@with_quota` (e.g., max 3 scraper retries). This prevents models from entering infinite extraction loops that exponentially bloat context history.
 
-**Reference Implementation:** Do not write delegation loop handlers from scratch. Simply clone and adapt the `delegate_tasks` function explicitly documented in the scaffold at `examples/basic-tui-agent/src/chat.py`.
+**Reference Implementation:** Do not write delegation loop handlers from scratch. Simply define your sub-agents in `src/app.py` via `SubAgentConfig` and the Engine handles the concurrency logic explicitly documented in the framework at `examples/basic-tui-agent/src/engine/orchestrator.py`.
 
 ## 3. Strict Workflow DAGs (Deterministic Pipelines)
 
@@ -106,7 +106,7 @@ Sometimes conversational orchestration introduces too much unpredictability. If 
 - **Markdown Conversion (Mandatory):** Whenever processing raw files (webpages, PDFs, raw HTML), use `markitdown` or `liteparse` to convert them to markdown before returning them to the LLM.
 
 ## 5. Reasoning Control
-1. **Native Thinking (`<think>`)**: Expose `/toggle_thinking` to flip `chat_template_kwargs={"enable_thinking": True}` on the fly. Extract via `delta.model_extra["reasoning_content"]`. (See `examples/basic-tui-agent/src/main.py`).
+1. **Native Thinking (`<think>`)**: Expose `/toggle_thinking` to flip `chat_template_kwargs={"enable_thinking": True}` on the fly. Extract via `delta.model_extra["reasoning_content"]`. (See `examples/basic-tui-agent/src/engine/tui.py`).
 2. **`think_tool` Strategy**: Include a dummy `@tool(approval_mode="never_require") def think_tool(reflection: str): return "Recorded"` to force the model to plan before executing.
 
 ## 6. Conversational Memory
@@ -123,7 +123,7 @@ agent.run(query, session=session, stream=True)  # history auto-managed
 
 Toggle via `config.yaml` `settings.enable_conversational_memory`. Reset via `/new` command (clears session + UI). When disabled, `session=None` is passed and each turn is independent.
 
-**Reference implementation:** `examples/basic-tui-agent/src/chat.py` — module-level `_session`, `create_local_agent()` returns `(agent, session)`, `reset_session()` clears it.
+**Reference implementation:** `examples/basic-tui-agent/src/engine/orchestrator.py` — module-level `_session`, `create_local_agent()` returns `(agent, session)`, `reset_session()` clears it.
 
 ## 7. Workspace and File Isolation
 - **In-Memory (`mem://`)**: Use dictionaries or ephemeral stores for parsing and data-formatting. 

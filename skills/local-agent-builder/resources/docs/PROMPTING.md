@@ -66,6 +66,6 @@ If you find yourself caught in a loop, immediately summarize your findings and s
 ```
 
 ## 6. String Interpolation Safety (Python Runtime Trap)
-When giving generic instructions or placeholders within a prompt, **NEVER** use single braces `{}` (e.g. `{run_folder}`) unless that variable is explicitly passed to Python's `.format()` method during agent initialization in `chat.py`. 
+When giving generic instructions or placeholders within a prompt, **NEVER** use single braces `{}` (e.g. `{run_folder}`) unless that variable is explicitly passed to Python's `.format()` method during agent initialization in `app.py` or `engine/orchestrator.py`.
 If you generate a bare `{placeholder}` in a Python system prompt string and the scaffold calls `.format(date=current_date)`, Python will throw a fatal `KeyError` and crash the application instantly. 
 To safely write structural placeholders in prompt templates, use double-braces `{{placeholder}}` or angle brackets `<placeholder>`.

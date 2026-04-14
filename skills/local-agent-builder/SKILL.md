@@ -23,18 +23,19 @@ You will find the scaffold project and documentation for how to create agents in
 - **STAGE 1 (Baseline Scaffold):** First, you **MUST** copy the entire contents of the `examples/basic-tui-agent/` directory to the main project working directory as your primary starting point, and read its `README.md`.
     - Always rely on `pyproject.toml` for adding new dependencies. Do **not** create a `requirements.txt` file.
     - Modify the `name` field in the `[project]` block of the copied `pyproject.toml` to reflect the agent you are building (e.g., `name = "local-research-agent"`).
-    - Modify the `[project.scripts]` block in the copied `pyproject.toml` to name the system-wide executable command after the agent you are building (e.g. `local-research-agent = "src.main:cli_main"`).
+    - Modify the `[project.scripts]` block in the copied `pyproject.toml` to name the system-wide executable command after the agent you are building (e.g. `local-research-agent = "src.app:cli_main"`).
     - Instruct the user to install the agent using `pipx install .` in the final `README.md`.
 - **STAGE 2 (Optional Extensions):** *ONLY* if the user explicitly requests email, background execution, or Mailbox responder features, you must instruct the user to install the global `sasori` daemon (`pipx install ./packages/sasori`). Do NOT write from-scratch polling logic. Instead, write an `[agent_name]_plugin.py` file inheriting from `sasori.handler.BaseMailboxHandler`, and instruct the user to place it in their `~/.sasori/handlers/` directory. Remind the user they'll need to restart the `sasori` daemon.
 
 > [!CAUTION]
 > **STRICT REUSE DIRECTIVE: DO NOT REWRITE FROM SCRATCH OR INVENT PATTERNS.**
 > You are explicitly forbidden from rewriting the core scaffold architecture. Your task is to perform **LIGHT MODIFICATIONS** to the provided `basic-tui-agent` files. 
-> - **Always reuse** the existing scaffold code, tools (`chat.py`, `main.py`, `tools/`), UI widgets, and logic wrappers wherever possible.
+> - **Always reuse** the existing scaffold code, tools (`src/app.py`, `tools/`), UI widgets, and logic wrappers wherever possible.
+> - **The `engine/` Directory is out-of-bounds:** Do NOT edit files inside `src/engine/` unless strictly necessary. It works out-of-the-box and provides the TUI and Textual logic, shielded so you only need to declare configurations in `src/app.py`.
 > - **Never invent or hallucinate architectures.** If a feature is needed, the required pattern is almost certainly already established inside the `resources/docs/` documents or as exemplary code within the scaffold. 
 > - Read the code, mimic its native structural patterns exactly, and only inject the specific business logic the user requested.
 
-1. **[Architecture](resources/docs/ARCHITECTURE.md)**: Rules for context management and Flat vs Sub-Agent pipelines. **(CRITICAL: Sub-agent loop handlers MUST reside in `chat.py`, never in `tools/`!)**
+1. **[Architecture](resources/docs/ARCHITECTURE.md)**: Rules for context management and Flat vs Sub-Agent pipelines. **(CRITICAL: Configure sub-agents via the AgentBuilder SDK inside `src/app.py`!)**
 2. **[Implementation](resources/docs/IMPLEMENTATION.md)**: Vital Python boilerplates for `<think>` tag scraping, TUI integrations, and Headless CLI (`--prompt`) batch processing. Includes rules on deleting (`pruning`) optional features like `markitdown` parsers or `web_search` to save context if unneeded.
 3. **[Tools](resources/docs/TOOLS.md)**: Copy-paste snippets for Web Search, Parsing, and Virtual FS.
 4. **[UI Guidelines](resources/docs/UI_GUIDELINES.md)**: Textual rendering rules, spanning the `OptionList` dropdown components and the collapsible workspace file viewers natively triggered via `/files` commands (dynamically reads from in-memory or on-disk based on `config.yaml`).

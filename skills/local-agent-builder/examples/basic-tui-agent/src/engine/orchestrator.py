@@ -18,7 +18,7 @@ def _build_client():
         model=config.cfg["api"]["openai_model"]
     )
 
-def create_local_agent(subagent_callback=None, session_data=None):
+def create_local_agent(builder, subagent_callback=None, session_data=None):
     """
     Returns (agent, session). Session is None when conversational memory is disabled.
     Agent is re-created each call to pick up config changes (thinking toggle).
@@ -42,15 +42,36 @@ def create_local_agent(subagent_callback=None, session_data=None):
 
     holds_token = contextvars.ContextVar('holds_token', default=False)
 
-    async def _run_single_task(task_name: str, instructions: str) -> str:
+    async def _run_single_task(task_name: str, instructions: str, agent_id: str = None) -> str:
         async with sem:
             token_setter = holds_token.set(True)
             try:
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                target_config = builder.sub_agents[0] if builder.sub_agents else None
+                if agent_id and builder.sub_agents:
+                    for conf in builder.sub_agents:
+                        if conf.name == agent_id:
+                            target_config = conf
+                            break
+                            
+                sub_tools = target_config.tools.copy() if target_config else []
+                if think_tool not in sub_tools:
+                    sub_tools.append(think_tool)
+                    
+                sub_instr = ""
+                if target_config:
+                    try:
+                        sub_instr = target_config.instructions.format(date=current_date, task_name=task_name)
+                    except KeyError:
+                        sub_instr = target_config.instructions
+                else:
+                    sub_instr = SUBAGENT_INSTRUCTIONS.format(date=current_date, task_name=task_name)
+
                 sub_agent = client.as_agent(
                     name=f"SubAgent_{task_name.replace(' ', '_')}",
-                    instructions=SUBAGENT_INSTRUCTIONS.format(date=current_date, task_name=task_name),
-                    tools=[WORKSPACE_TOOLS[0], WORKSPACE_TOOLS[3], think_tool], # read_workspace_file, grep_workspace_file, think
+                    instructions=sub_instr,
+                    tools=sub_tools,
                     default_options={
                         "temperature": 0.0,
                         "extra_body": {
@@ -80,14 +101,15 @@ def create_local_agent(subagent_callback=None, session_data=None):
     # and starves the token pool), `delegate_tasks` utilizes contextvars
     # to mathematically surrender its token while waiting, allowing children to safely execute.
     # -------------------------------------------------------------
-    @tool(name="delegate_tasks", description="Delegate multiple independent tasks to specialized sub-agents to be executed concurrently. Pass a list of dictionaries, each with 'task_name' and 'instructions'.")
+    @tool(name="delegate_tasks", description="Delegate multiple independent tasks to specialized sub-agents to be executed concurrently. Pass a list of dictionaries, each with 'task_name', 'instructions', and optionally 'agent_id'.")
     @with_quota
     async def delegate_tasks(tasks: list[dict]) -> str:
         coroutines = []
         for t in tasks:
             name = t.get("task_name", "Unknown_Task")
             instr = t.get("instructions", "")
-            coroutines.append(_run_single_task(name, instr))
+            aid = t.get("agent_id", None)
+            coroutines.append(_run_single_task(name, instr, aid))
             
         was_holding = holds_token.get()
         if was_holding:
@@ -113,8 +135,11 @@ def create_local_agent(subagent_callback=None, session_data=None):
     # When adding or removing standard tools (e.g., pruning `web_search`), modify the `WORKSPACE_TOOLS` array or this `tools_list`.
     # DO NOT rewrite this entire function or file from scratch.
     # -------------------------------------------------------------
+    # -------------------------------------------------------------
     # Orchestrator retains full access to WORKSPACE_TOOLS but gains `delegate_tasks`
-    tools_list = WORKSPACE_TOOLS + [delegate_tasks]
+    tools_list = builder.tools.copy()
+    if builder.sub_agents:
+        tools_list.append(delegate_tasks)
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Define orchestrator strict quotas
@@ -122,8 +147,8 @@ def create_local_agent(subagent_callback=None, session_data=None):
     q_orch_fetch = 10
 
     agent = client.as_agent(
-        name="Scaffold_Agent",
-        instructions=ORCHESTRATOR_INSTRUCTIONS.format(
+        name=builder.name,
+        instructions=builder.instructions.format(
             date=current_date,
             delegation_instructions=SUBAGENT_DELEGATION_INSTRUCTIONS.format(
                 max_concurrency=config.cfg.get("settings", {}).get("concurrency", {}).get("max_concurrent_tasks", 1)

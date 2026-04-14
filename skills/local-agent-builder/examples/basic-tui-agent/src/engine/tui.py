@@ -4,8 +4,8 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, OptionList, Static, Collapsible, RichLog, Button
 from textual.containers import VerticalScroll, Horizontal, Vertical
 from rich.markdown import Markdown
-from chat import create_local_agent, reset_session
-import chat as chat_module
+from engine.orchestrator import create_local_agent, reset_session
+import engine.orchestrator as orchestrator_module
 import asyncio
 import json
 import config
@@ -44,9 +44,9 @@ def _write_log():
         "session_id": _current_session_id
     }
     
-    if chat_module._session:
+    if orchestrator_module._session:
         try:
-            payload["agent_session"] = chat_module._session.to_dict()
+            payload["agent_session"] = orchestrator_module._session.to_dict()
         except Exception:
             pass
             
@@ -399,6 +399,10 @@ class BasicTuiAgent(App):
 
     SLASH_COMMANDS = [("/stop", "Stop execution"), ("/new", "New conversation"), ("/exit", "Quit app"), ("/toggle_thinking", "Toggle reasoning trace capability"), ("/toggle_persistence", "Toggle session history saving"), ("/config", "Show current configuration"), ("/files", "Browse memory workspace files"), ("/sessions", "List saved sessions"), ("/resume", "Resume a saved session")]
 
+    def __init__(self, builder, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.builder = builder
+
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-container")
         opt_list = OptionList(id="command-list")
@@ -607,11 +611,11 @@ class BasicTuiAgent(App):
             _current_call_by_source.clear()
             _current_text_by_source.clear()
             
-            chat_module.reset_session()
+            orchestrator_module.reset_session()
             if state_dict:
-                chat_module.create_local_agent(session_data=state_dict)
+                orchestrator_module.create_local_agent(builder=self.builder, session_data=state_dict)
             else:
-                chat_module.create_local_agent()
+                orchestrator_module.create_local_agent(builder=self.builder)
                 
             await self.reconstruct_ui_from_events(ui_events)
             
@@ -867,7 +871,7 @@ class BasicTuiAgent(App):
             await self.handle_agent_update(update, subagent_states[aname], chat, is_subagent=is_subagent, agent_name=aname, is_done=is_done)
             
         # Create agent (re-reads config) and get session (None if conversational memory disabled)
-        agent, session = create_local_agent(subagent_callback=ui_callback)
+        agent, session = create_local_agent(builder=self.builder, subagent_callback=ui_callback)
         current_input = query
         has_requests = True
         state = {"calls": {}, "current_call_id": None, "current_msg": None}
@@ -1072,7 +1076,7 @@ class BasicTuiAgent(App):
         self.query_one("#command-list", OptionList).display = False
         await self._load_session_by_id(session_id)
 
-async def run_cli(prompt: str = None, prompt_file: str = None):
+async def run_cli(builder, prompt: str = None, prompt_file: str = None):
     """Run the agent in headless mode, streaming results to stdout."""
     config_quotas = config.cfg.get("settings", {}).get("quotas", {})
     sub_quotas = {}
@@ -1098,7 +1102,7 @@ async def run_cli(prompt: str = None, prompt_file: str = None):
             if content.type == "function_call" and content.call_id:
                 sys.stdout.write(f"\n\033[93m[{agent_name}] Calling {content.name}...\033[0m\n")
 
-    agent, session = create_local_agent(subagent_callback=cli_subagent_callback)
+    agent, session = create_local_agent(builder=builder, subagent_callback=cli_subagent_callback)
 
     if prompt_file:
         try:
@@ -1132,7 +1136,7 @@ async def run_cli(prompt: str = None, prompt_file: str = None):
     finally:
         tool_quotas_ctx.reset(token)
 
-def cli_main():
+def cli_main(builder):
     parser = argparse.ArgumentParser(description="Basic Agent TUI / CLI Scaffold")
     parser.add_argument("--config", "-c", type=str, help="Path to config.yaml", default=None)
     parser.add_argument("--prompt", "-p", type=str, help="Run non-interactively with a specific prompt (headless mode)", default=None)
@@ -1141,10 +1145,10 @@ def cli_main():
     args, _ = parser.parse_known_args()
 
     if args.prompt_file:
-        asyncio.run(run_cli(prompt_file=args.prompt_file))
+        asyncio.run(run_cli(builder, prompt_file=args.prompt_file))
     elif args.prompt:
         log_prompt(args.prompt)
-        asyncio.run(run_cli(prompt=args.prompt))
+        asyncio.run(run_cli(builder, prompt=args.prompt))
     elif args.web:
         try:
             from textual_serve.server import Server
@@ -1168,7 +1172,7 @@ def cli_main():
         server = Server(command_str)
         server.serve()
     else:
-        BasicTuiAgent().run()
+        BasicTuiAgent(builder).run()
 
 if __name__ == "__main__":
-    cli_main()
+    pass

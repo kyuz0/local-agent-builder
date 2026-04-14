@@ -22,7 +22,7 @@ You do not need to implement filesystem tools manually. The scaffold includes fu
 
 **Usage:** Import these directly from `examples/basic-tui-agent/src/tools/fs.py`.
 
-*Session Isolation Pattern:* If an agent requires isolated subfolders for each workflow or session, the filesystem tools automatically support a `session_dir_ctx` ContextVar. Do not create new generic workspace tools; instead, uncomment the `session_dir_ctx` setup block at the top of `main.py`'s `run_agent` loop to securely auto-route all file operations into a timestamped subfolder.
+*Session Isolation Pattern:* If an agent requires isolated subfolders for each workflow or session, the filesystem tools automatically support a `session_dir_ctx` ContextVar. Do not create new generic workspace tools; instead, uncomment the `session_dir_ctx` setup block at the top of `src/engine/tui.py`'s `run_agent` loop to securely auto-route all file operations into a timestamped subfolder.
 
 *Note:* A special combination tool, `fetch_url_to_workspace`, scrapes websites directly to the filesystem to preserve the LLM's context window. Find this in `src/tools/web.py`.
 

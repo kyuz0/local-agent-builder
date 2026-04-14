@@ -23,7 +23,7 @@ Every single function boundary must include robust Python type hints.
 
 ## 4. Single-Namespace Forwarding 
 When building a package (like `src/tools/`), you must ensure that all tools from all different modules are cleanly aggregated inside the `__init__.py`. 
-- Consumers (like `main.py`) should NEVER import from submodules like `from tools.web import fetch_url_to_workspace`. 
+- Consumers (like `src/app.py` or `src/engine/orchestrator.py`) should NEVER import from submodules like `from tools.web import fetch_url_to_workspace`. 
 - They should always import from the parent: `from tools import fetch_url_to_workspace`.
 
 ## 5. File Scoping & Single Responsibility

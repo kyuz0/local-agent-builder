@@ -22,10 +22,10 @@ your-main-project/  <-- (This is the copied examples/basic-tui-agent/ folder)
 ├── .env.example          # Template for .env (checked into source control)
 ├── pyproject.toml        # Application configuration and dependencies
 ├── src/
-│   ├── main.py           # TUI and entrypoint
+│   ├── app.py            # Declarative AgentBuilder entrypoint
 │   ├── config.py         # Config loader (YAML + ENV fallback)
 │   ├── config_template.yaml # Scaffold configuration dictionary template
-│   ├── chat.py           # Core agent instantiation and streaming logic
+│   ├── engine/           # Internal generic event and orchestrator loops
 │   ├── prompts.py        # Long multi-line instruction strings
 │   ├── utils/            # Optional helpers to prune if unneeded
 │   │   └── parsers.py    # `markitdown` and `liteparse` conversion scripts
@@ -72,7 +72,7 @@ Secrets belong inside `.env` via `python-dotenv`, while runtime states (`enable_
 **Global Agent Configuration Rules:**
 - The configuration loader inherently targets a system-wide directory: `~/.{AGENT_NAME}/config.yaml` (e.g., `~/.basic-tui-agent/config.yaml`).
 - On first startup, if that file is missing, the scaffold automatically creates the directory and copies its bundled `src/config_template.yaml` template directly into the user's home partition.
-- Developers can overwrite this path at runtime utilizing the `--config` or `-c` CLI flag (e.g., `python src/main.py --config ./local_config.yaml`).
+- Developers can overwrite this path at runtime utilizing the `--config` or `-c` CLI flag (e.g., `python src/app.py --config ./local_config.yaml`).
 
 Reference `examples/basic-tui-agent/src/config.py` for exact merging implementation and early-stage parameter extraction.
 
@@ -95,12 +95,12 @@ The scaffold natively implements conversational recovery without missing a beat 
 - `/resume` to automatically load the most recent session file.
 
 > [!IMPORTANT]
-> When using the `basic-tui-agent` scaffold to create new applications, you **MUST** update the `AGENT_NAME` and `AGENT_DESCRIPTION` variables at the top of `src/main.py`. These variables dynamically build the application UI components, dictate the auto-generated ASCII-art banner on the welcome screen, and shape the hidden folder where sessions are saved (e.g. `~/.<sanitized-agent-name>/sessions/session_<uuid>.json`).
+> When using the `basic-tui-agent` scaffold to create new applications, you **MUST** update the `name` and `description` bindings in the `AgentBuilder` block inside `src/app.py` (which usually reads from `config.py`). These dictate the UI branding and internal storage namespaces.
 
 ### Conversational Memory Recipe
 
 When `enable_conversational_memory: true`, the framework's built-in `InMemoryHistoryProvider` can automatically inject and manage histories seamlessly. You do not need to manage history lists manually.
-**Reference Implementation:** Clone the module-level `_session` state passing logic found explicitly in `examples/basic-tui-agent/src/chat.py`.
+**Reference Implementation:** State passing is completely insulated within the framework `engine/orchestrator.py`. You only need to define components declaring `SubAgentConfig` definitions.
 
 ## 2. Managing the <think> Token Artifacts
 Small LLMs can hallucinate unbalanced tags. You must strip them natively using regex before final user display:
@@ -111,7 +111,7 @@ def clean_reasoning_tags(s: str) -> str:
     return re.sub(r"<(think|thought)>.*", "", s, flags=re.DOTALL | re.IGNORECASE).strip()
 ```
 
-**Streaming reasoning display:** When `enable_thinking` is on, local LLMs emit reasoning via `delta.model_extra["reasoning_content"]` (not surfaced by agent-framework's `ChatCompletionClient`). Extract from raw chunk: `update.raw_representation.raw_representation.choices[0].delta.model_extra["reasoning_content"]`. See `examples/basic-tui-agent/src/main.py` `ThinkingWidget` for a collapsible streaming implementation with `/toggle_thinking`.
+**Streaming reasoning display:** When `enable_thinking` is on, local LLMs emit reasoning via `delta.model_extra["reasoning_content"]` (not surfaced by agent-framework's `ChatCompletionClient`). This is natively parsed by the `engine/tui.py`.
 
 ## 3. The `think_tool` Reflection Pattern
 
@@ -185,14 +185,13 @@ For advanced PDF layout interpretation or heavy OCR via local subprocess executi
 ## 6. Sub-Agent Delegation with TUI Streaming
 **Rule: To enable deeply nested sub-agents with live UI token streams, DO NOT use `.as_tool()`.**
 Instead, build a manual wrapper that propagates async streams up to the chat UI. 
-You **MUST** strictly clone the pattern implemented in `examples/basic-tui-agent/src/chat.py` (`delegate_tasks`) and the `handle_agent_update` intercept block. Those scaffold files serve as the blueprint for complex TUI handling.
+You **MUST** strictly define agents using the pattern implemented in `examples/basic-tui-agent/src/app.py`. Do not try to write the framework manual intercept blocks.
 
 > [!WARNING]
 > **CRITICAL SUB-AGENT CODING RULES:**
-> 1. **Location:** You **MUST** define delegation tools *inside* `create_local_agent()` in `chat.py`. Do NOT abstract sub-agent creation into `tools/` files. Defining them inside `chat.py` is required to capture `subagent_callback` and stream child agent reasoning/text back to the UI. If you put them in `tools/`, the UI will freeze and show nothing!
-> 2. **Decorator:** When defining a delegation tool using the `@tool` decorator, ALWAYS provide an explicit `description` argument (e.g., `@tool(name="delegate_task", description="Highly detailed instructions...")`). Relying only on docstrings for complex sub-agent delegation tools often results in `Error: Function Failed` due to the Parent LLM failing to build the correct JSON schema.
-> 3. **No Hallucinated State:** Do NOT invent global state variables or undeclared counter functions (like `_get_next_id()`) to dynamically name your sub-agents in a loop. Subagents do not need unique numeric IDs. Hardcode a static name (e.g., `name="SearchAgent"`) when passing it to `client.as_agent()`, or use string sanitization on a passed argument (e.g. `f"SubAgent_{task_name}"`).
-> 4. **Dependency Ordering (CRITICAL):** Because delegation tools are local closure functions (`async def ...`) inside `create_local_agent()`, Python evaluates them sequentially. If Sub-Agent A needs to be given a delegation tool to dispatch Sub-Agent B, you **MUST** define Sub-Agent B's delegation tool completely *before* Sub-Agent A's tool in the file. If you define them out of order, passing it into `tools=[...]` will throw a `NameError`, or if you simply omit it to avoid the error, the parent agent will spin infinitely trying to call a tool it lacks the schema for!
+> 1. **Location:** You **MUST** define delegation logic through standard `SubAgentConfig(tools=[...])` parameters in `src/app.py`. The engine automatically builds concurrent pipelines.
+> 2. **Recursive Tracking:** Parent agents use `contextvars` to release their concurrency token before `await asyncio.gather(...)` to avoid deadlocks. This is pre-configured in the basic scaffold `engine/orchestrator.py`.
+> 3. **Concurrency:** Always use an `asyncio.Semaphore` tied to `config.cfg["settings"]["concurrency"]["max_concurrent_tasks"]`.
 
 ### Bounded Concurrency Implementations
 When implementing concurrent scatter-gather operations:
@@ -209,13 +208,13 @@ Agents built using this scaffold natively support headless CLI operations for se
 
 By skipping the TUI and directly invoking local streams to `sys.stdout`, you can trigger one-shot tasks:
 ```bash
-python src/main.py --prompt "Analyze the provided log files and output a markdown summary."
+python src/app.py --prompt "Analyze the provided log files and output a markdown summary."
 ```
-This is fully baked into the `argparse` configuration block found in `src/main.py` when following the `basic-tui-agent` scaffold.
+This is fully baked into the `AgentBuilder.start()` execution loop inherited from `src/engine/tui.py`.
 
 ### 7.1 Background Mailbox Daemon Integration (Stage 2 Add-on)
 Agents can optionally be wrapped into a background email-driven workflow where a dedicated process polls an inbox, injects emails into the agent via `--prompt-file`, and replies with the output.
-**Rule: This is a Stage 2 workflow. If a user asks you to integrate an agent with email or run it as a background service answering messages, you MUST read and implement the rules specifically found in [`MAILBOX.md`](./MAILBOX.md) and deploy the optional `mailbox-daemon-addon` scaffold.** Do not attempt to embed email IMAP/SMTP protocols into `chat.py` or the agent's tools directly.
+**Rule: This is a Stage 2 workflow. If a user asks you to integrate an agent with email or run it as a background service answering messages, you MUST read and implement the rules specifically found in [`MAILBOX.md`](./MAILBOX.md) and deploy the optional `mailbox-daemon-addon` scaffold.** Do not attempt to embed email IMAP/SMTP protocols into `app.py` or the agent's tools directly.
 
 ## 8. Todo Checklist Tracking Strategy
 **Rule: Always use Markdown Checkbox Lists for agent tasks tracking.**

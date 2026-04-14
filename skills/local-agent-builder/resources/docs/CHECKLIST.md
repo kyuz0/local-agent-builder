@@ -11,7 +11,7 @@
 - [ ] **Application Branding & Packaging:** Did I rename the default `basic-tui-agent` into a sensible, task-specific identity? This requires updating the `name` field in `pyproject.toml`, the `[project.scripts]` executable definition, AND the `APP_NAME`, `APP_TITLE`, and `APP_DESCRIPTION` constants at the top of `src/config.py`.
 
 ### 2. Sub-Agent Delegation (Strict Validation)
-- [ ] **Location Restraint:** Are ALL of my sub-agent delegation functions (`@tool` wrappers) defined *inside* `create_local_agent()` in `chat.py`? (Moving them to `tools/` breaks the UI stream).
+- [ ] **Location Restraint:** Are ALL of my sub-agents configured purely as `SubAgentConfig` definitions inside `src/app.py`? (Do not try to edit `engine/orchestrator.py` manually).
 - [ ] **Dependency Ordering (CRITICAL):** Did I define deeply-nested sub-agents *before* their parent agents sequentially in the file? (e.g., defining `delegate_analyzer` above `delegate_searcher` so it can be passed into `tools=[]` without a `NameError`).
 - [ ] **No Hallucinated State:** Am I statically hardcoding the `name="SubAgent"` in `client.as_agent()`? I MUST NOT invent global list counters (`_get_next_id()`).
 - [ ] **Decorator Safety:** Does every delegation `@tool` have an explicit, strongly-typed `description` to prevent JSON schema generation failures?
@@ -23,5 +23,5 @@
 - [ ] **Architectural Boundaries:** Did I withhold inappropriate tools from the Orchestrator (e.g. stripping `web_search`) to force proper sub-agent delegation?
 
 ### 4. Optional Extensions
-- [ ] **Mailbox Segregation:** If asked to execute via email, did I use the `mailbox-daemon-addon` daemon pattern entirely decoupled from `chat.py`?
-- [ ] **Storage & Path Mapping:** Is in-memory vs disk storage configured correctly? If the user asked for isolated workflow runs or per-session directories, did I explicitly uncomment the `session_dir_ctx` setup in `main.py` so that all files are transparently routed to the active namespace, avoiding sub-agent flat-path confusion?
+- [ ] **Mailbox Segregation:** If asked to execute via email, did I use the `mailbox-daemon-addon` daemon pattern entirely decoupled from `app.py`?
+- [ ] **Storage & Path Mapping:** Is in-memory vs disk storage configured correctly? If the user asked for isolated workflow runs or per-session directories, did I explicitly uncomment the `session_dir_ctx` setup in `engine/tui.py` so that all files are transparently routed to the active namespace, avoiding sub-agent flat-path confusion?

@@ -34,12 +34,12 @@ To differentiate user queries from raw agent generation text explicitly, utilize
 Provide conversational intercepts using `/` commands (like `/stop`, `/config`, `/think_toggle`). Map an `OptionList` above the raw `Input` box and tie its visibility state directly to text mutations.
 
 > [!TIP]
-> When extending the `basic-tui-agent` scaffold, you can add new commands by appending tuples to the `SLASH_COMMANDS` array inside `src/main.py`. Handle the execution logic inside the `on_input_submitted()` interface hook. Do NOT render the full `SLASH_COMMANDS` list manually inside the welcome screen banner, as the command list is meant to grow dynamically without consuming horizontal/vertical layout space.
+> When extending the `basic-tui-agent` scaffold, you can add new commands by appending tuples to the `SLASH_COMMANDS` array inside `src/engine/tui.py`. Handle the execution logic inside the `on_input_submitted()` interface hook. Do NOT render the full `SLASH_COMMANDS` list manually inside the welcome screen banner, as the command list is meant to grow dynamically without consuming horizontal/vertical layout space.
 
 > [!NOTE]
-> The scaffold includes a built-in `/config` command (implemented in `src/main.py`) which renders the currently loaded `config.cfg` structure dynamically via markdown. If you add highly specialized settings or commands that require explicit UI visibility mapping, remember to check and update this `/config` display hook if the default dictionary iteration loop cannot capture it natively.
+> The scaffold includes a built-in `/config` command (implemented in `src/engine/tui.py`) which renders the currently loaded `config.cfg` structure dynamically via markdown. If you add highly specialized settings or commands that require explicit UI visibility mapping, remember to check and update this `/config` display hook if the default dictionary iteration loop cannot capture it natively.
 
-**Reference Implementation:** Do not re-write Textual logic to handle options lists or autocomplete dropdowns. Use the native `SLASH_COMMANDS` tuple and the `on_input_submitted` / `on_input_changed` handlers natively built into the scaffold at `examples/basic-tui-agent/src/main.py`.
+**Reference Implementation:** Do not re-write Textual logic to handle options lists or autocomplete dropdowns. Use the native `SLASH_COMMANDS` tuple and the `on_input_submitted` / `on_input_changed` handlers natively built into the scaffold at `examples/basic-tui-agent/src/engine/tui.py`.
 
 ## 3. Rendering Asynchronous Hierarchical Tool Execution
 
@@ -55,10 +55,10 @@ A core mechanism of local `agent-framework` execution is handling tool-call dele
 
 ### Stream Pipeline Architecture
 **Rule: To render deeply nested Sub-Agents and async tools without UI-freezing, you MUST inject AgentFramework's `AgentResponseUpdate` chunks into the DOM directly.**
-Do not attempt to write this loop from scratch. Clone `handle_agent_update` and `ToolCallWidget` exactly as implemented in `examples/basic-tui-agent/src/main.py`.
+Do not attempt to write this loop from scratch. The engine natively handles this utilizing `handle_agent_update` and `ToolCallWidget` as implemented in `examples/basic-tui-agent/src/engine/tui.py`.
 
 ## 4. Human-in-the-Loop (HITL) Asynchronous Interception
 If the agent invokes a tool marked with `@tool(approval_mode="always_require")` (like a destructive file operation), the chunk will yield `user_input_requests`.
 **Rule: You must halt the asynchronous loop, retrieve boolean approval, and manually push a synthetic context trace back.**
-Clone the HITL loop intercept implemented in `examples/basic-tui-agent/src/main.py` explicitly.
+The engine natively intercepts utilizing the HITL loop intercept implemented in `examples/basic-tui-agent/src/engine/tui.py` explicitly.
 ```

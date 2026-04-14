@@ -23,11 +23,12 @@ dependencies = [
 ]
 
 [project.scripts]
-local-agent = "src.main:cli_main"
+local-agent = "src.app:cli_main"
 
 [tool.setuptools]
 packages = [
     "src",
     "src.tools",
+    "src.engine",
     "src.utils"
 ]
