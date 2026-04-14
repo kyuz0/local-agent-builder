@@ -1137,6 +1137,7 @@ def cli_main():
     parser.add_argument("--config", "-c", type=str, help="Path to config.yaml", default=None)
     parser.add_argument("--prompt", "-p", type=str, help="Run non-interactively with a specific prompt (headless mode)", default=None)
     parser.add_argument("--prompt-file", "-f", type=str, help="Run non-interactively reading a JSON context file", default=None)
+    parser.add_argument("--web", "-w", action="store_true", help="Serve the TUI as a web application")
     args, _ = parser.parse_known_args()
 
     if args.prompt_file:
@@ -1144,6 +1145,28 @@ def cli_main():
     elif args.prompt:
         log_prompt(args.prompt)
         asyncio.run(run_cli(prompt=args.prompt))
+    elif args.web:
+        try:
+            from textual_serve.server import Server
+        except ImportError:
+            sys.stdout.write("Error: 'textual-serve' is not installed. Please install it with 'pip install textual-serve' to use the --web mode.\n")
+            sys.exit(1)
+            
+        import shlex
+        # Remove the web flag to avoid recursive server spawning
+        child_args = [arg for arg in sys.argv if arg not in ("--web", "-w")]
+        
+        # Ensure we run by executable if we are running as a direct py script
+        if not child_args[0].endswith("local-agent") and not child_args[0].endswith(".exe"):
+            child_args.insert(0, sys.executable)
+            
+        command_str = shlex.join(child_args)
+        
+        sys.stdout.write("Starting Textual Web Server on http://localhost:8000 ...\n")
+        sys.stdout.write("Press Ctrl+C to stop.\n")
+        
+        server = Server(command_str)
+        server.serve()
     else:
         BasicTuiAgent().run()
 

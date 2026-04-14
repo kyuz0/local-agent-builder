@@ -18,7 +18,8 @@ dependencies = [
     "PyYAML",
     "pyfiglet",
     "ddgs",
-    "markitdown[all]"
+    "markitdown[all]",
+    "textual-serve"
 ]
 
 [project.scripts]

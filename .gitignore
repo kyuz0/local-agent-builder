@@ -3,3 +3,10 @@
 workspace
 venv
 agent-framework
+
+# Python packaging/builds
+*.egg-info/
+.eggs/
+*.egg
+build/
+dist/
