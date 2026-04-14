@@ -20,8 +20,8 @@ You will find the scaffold project and documentation for how to create agents in
 > **CRITICAL PATH RESOLUTION FOR AI AGENTS:** Since this skill may be loaded from a global skills directory (e.g., `~/opencode/skills/`) or local skills directory (e.g., `.opencode/skills/`), all file paths mentioned below (like `resources/...` and `examples/...`) are relative to the folder containing this `SKILL.md` file. You **MUST** resolve these to their absolute paths using `SKILL.md`'s location before using your tools to list, read, or copy them. Do not assume they are in the current working directory.
 
 > [!TIP]
-> **CONTEXT MANAGEMENT: AVOID BLINDLY READING ALL FILES.**
-> Your context window is precious! Do **not** blindly read every `.md` document in the `resources/docs/` folder. Usually, you only need to read `ARCHITECTURE.md` and `IMPLEMENTATION.md` and possibly `TOOLS.md`. Skip documents like `SHELL.md` or `MAILBOX.md` unless the user explicitly requests those specific advanced capabilities.
+> **CONTEXT MANAGEMENT: AVOID READING ALL DOCS AT ONCE.**
+> Your context window is limited! Do **not** blindly read every `.md` document in the `resources/docs/` folder. Usually, you only need to read `ARCHITECTURE.md` and `IMPLEMENTATION.md` and possibly `TOOLS.md`. Skip documents like `SHELL.md` or `MAILBOX.md` unless the user explicitly requests those specific advanced capabilities.
 
 **MANDATORY STARTING STEPS FOR BUILDING NEW APPLICATIONS:** 
 - **STAGE 1 (Baseline Scaffold):** First, you **MUST** copy the entire contents of the `examples/basic-tui-agent/` directory to the main project working directory as your primary starting point, and read its `README.md`.
