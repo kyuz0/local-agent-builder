@@ -25,3 +25,4 @@
 ### 4. Optional Extensions
 - [ ] **Mailbox Segregation:** If asked to execute via email, did I use the `mailbox-daemon-addon` daemon pattern entirely decoupled from `app.py`?
 - [ ] **Storage & Path Mapping:** Is in-memory vs disk storage configured correctly? If the user asked for isolated workflow runs or per-session directories, did I explicitly uncomment the `session_dir_ctx` setup in `engine/tui.py` so that all files are transparently routed to the active namespace, avoiding sub-agent flat-path confusion?
+- [ ] **Shell Execution Safety:** If I included the `run_shell_command` tool, did I only do so because the user explicitly requested it? (If not, REMOVE IT NOW to secure the environment). If included, did I configure the Anthropic SRT sandbox constraints safely in `config.yaml` if this applies to the use-case?

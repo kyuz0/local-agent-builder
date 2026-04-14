@@ -66,7 +66,7 @@ async def fetch_url_to_workspace(url: str, filename: str, convert_to_md: bool = 
         import traceback
         return f"Failed: {e}\n\nTraceback:\n{traceback.format_exc()}"
 
-@tool(approval_mode="never_require")
+@tool
 async def web_search(
     query: str,
     max_results: int = 5,

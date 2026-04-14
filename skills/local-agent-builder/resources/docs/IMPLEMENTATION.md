@@ -91,8 +91,12 @@ When enabled, interactions are natively aggregated into payloads saved in `~/.{A
 **TUI Recovery Commands:**
 The scaffold natively implements conversational recovery without missing a beat visually. Instruct users they can type:
 - `/sessions` to list recent persistent histories.
-- `/restore [id]` to wipe the current canvas and seamlessly recreate the interface exactly as it was.
-- `/resume` to automatically load the most recent session file.
+- `/resume` to open a visual dropdown and load the selected session file.
+
+**CLI Recovery Flags:**
+System persistence can be bypassed securely from the command line using:
+- `python src/app.py --list-sessions`
+- `python src/app.py --resume <session_id>` (Works interactively by booting the TUI, or headlessly if appended alongside `--prompt`)
 
 > [!IMPORTANT]
 > When using the `basic-tui-agent` scaffold to create new applications, you **MUST** update the `name` and `description` bindings in the `AgentBuilder` block inside `src/app.py` (which usually reads from `config.py`). These dictate the UI branding and internal storage namespaces.
@@ -165,19 +169,19 @@ Microsoft's `markitdown` provides universal parsing for text-native files (HTML,
 
 ## Tool Authorization (Human-In-The-Loop)
 
-You must protect the host computer from dangerous tool execution (like executing raw bash commands or deleting systemic files). You can enforce an explicit human authorization check by flipping the tool approval string:
+You must protect the host computer from dangerous tool execution (like executing raw bash commands or deleting systemic files).
 
-```python
-from agent_framework import tool
+**Rule: DO NOT hardcode human approvals inside Python logic.**
+You should explicitly define all tools using the standard `@tool` decorator without any keyword arguments. Do **not** use `approval_mode="always_require"`.
 
-@tool(approval_mode="always_require")  # Standard tools use "never_require"
-def auth_test_delete(target: str) -> str:
-    """A destructive action that mandates human oversight."""
-    return f"Simulated deletion of {target}"
+Instead, the scaffolding `AgentBuilder` handles enforcing these bounds dynamically via the YAML configurations. To protect a tool with potentially dangerous outcomes, direct the user to assign it inside `config.yaml`:
+```yaml
+settings:
+  permissions:
+    my_destructive_tool: "require_approval"
 ```
 
-When an agent attempts to call an `always_require` tool, the raw response payload will stall and yield a `user_input_requests` object back to the orchestrator. You MUST surface this to the user, grab a Boolean confirmation (`True/False`), and re-inject it back into the stream alongside the original context. *(Review `UI_GUIDELINES.md` for the exact Streaming Interception loop).*
-
+When an agent attempts to call a tool protected via `config.yaml`, the orchestrator natively intercepts it via `user_input_requests` and propagates it to your interactive TUI or blocks it within headless environments automatically.
 ### Liteparse (LlamaIndex)
 For advanced PDF layout interpretation or heavy OCR via local subprocess execution, utilize Node.js-based `@llamaindex/liteparse`.
 **Reference Implementation:** Use the `extract_advanced_pdf` (or `robust_ocr_parse`) function natively baked into `examples/basic-tui-agent/src/utils/parsers.py` to seamlessly execute CLI extraction.
@@ -212,7 +216,15 @@ python src/app.py --prompt "Analyze the provided log files and output a markdown
 ```
 This is fully baked into the `AgentBuilder.start()` execution loop inherited from `src/engine/tui.py`.
 
-### 7.1 Background Mailbox Daemon Integration (Stage 2 Add-on)
+### 7.1 Global Auto-Approvals for Automations
+Headless scripts will naturally halt and silently fail if an agent attempts to execute an `always_require` Human-in-the-Loop tool without an interactive UI attached.
+
+For full pipeline automation unbothered by these explicit constraints, you **MUST** provide the `--auto-approve` argument. You can deploy this global flag universally across both Headless batch systems and Textual TUI contexts to dynamically bypass all widget suspensions.
+```bash
+python src/app.py --prompt "Delete all unneeded files in the scratch directory" --auto-approve
+```
+
+### 7.2 Background Mailbox Daemon Integration (Stage 2 Add-on)
 Agents can optionally be wrapped into a background email-driven workflow where a dedicated process polls an inbox, injects emails into the agent via `--prompt-file`, and replies with the output.
 **Rule: This is a Stage 2 workflow. If a user asks you to integrate an agent with email or run it as a background service answering messages, you MUST read and implement the rules specifically found in [`MAILBOX.md`](./MAILBOX.md) and deploy the optional `mailbox-daemon-addon` scaffold.** Do not attempt to embed email IMAP/SMTP protocols into `app.py` or the agent's tools directly.
 

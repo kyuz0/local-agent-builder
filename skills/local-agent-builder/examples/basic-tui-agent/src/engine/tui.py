@@ -206,14 +206,31 @@ class PromptInput(Input):
         self._history_index = -1
 
 class ApprovalWidget(Static):
-    def __init__(self, action: str):
+    def __init__(self, action: str, agent_name: str = "Agent", arguments: str = ""):
         super().__init__(classes="agent-bubble")
         self.action = action
+        self.agent_name = agent_name
+        self.arguments = arguments
         self.approved = False
         self.event = asyncio.Event()
 
     def compose(self) -> ComposeResult:
-        yield Static(Markdown(f"**Tool approval required:** `{self.action}`"))
+        args_str = ""
+        if self.arguments:
+            if isinstance(self.arguments, str):
+                args_str = self.arguments
+            else:
+                import json
+                try:
+                    args_str = json.dumps(self.arguments, indent=2)
+                except Exception:
+                    args_str = str(self.arguments)
+        
+        md_text = f"**Tool approval required:** `[{self.agent_name}] {self.action}`"
+        if args_str:
+            md_text += f"\n```json\n{args_str}\n```"
+            
+        yield Static(Markdown(md_text))
         with Horizontal(classes="approval-buttons"):
             yield Button("Approve", id="approve", variant="success")
             yield Button("Deny", id="deny", variant="error")
@@ -398,10 +415,10 @@ class BasicTuiAgent(App):
     """
 
     SLASH_COMMANDS = [("/stop", "Stop execution"), ("/new", "New conversation"), ("/exit", "Quit app"), ("/toggle_thinking", "Toggle reasoning trace capability"), ("/toggle_persistence", "Toggle session history saving"), ("/config", "Show current configuration"), ("/files", "Browse memory workspace files"), ("/sessions", "List saved sessions"), ("/resume", "Resume a saved session")]
-
-    def __init__(self, builder, *args, **kwargs):
+    def __init__(self, builder, session_to_resume: str = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.builder = builder
+        self.session_to_resume = session_to_resume
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat-container")
@@ -429,22 +446,28 @@ class BasicTuiAgent(App):
         workspace_type = config.cfg.get("settings", {}).get("workspace", {}).get("type", "memory")
         workspace_dir = config.cfg.get("settings", {}).get("workspace", {}).get("dir", ".")
         workspace_disp = f"Disk ({workspace_dir})" if workspace_type == "disk" else "In-Memory"
+        
         status_line = f"  [dim]Config Loaded:[/dim] [bright_black]{config_path}[/bright_black]  [dim]Workspace:[/dim] [yellow]{workspace_disp}[/yellow]\n  [dim]Endpoint:[/dim] [cyan]{endpoint}[/cyan]  [dim]Model:[/dim] [cyan]{model}[/cyan]  [dim]Thinking:[/dim] [{thinking_color}]{thinking}[/{thinking_color}]  [dim]Conv Memory:[/dim] [{memory_color}]{memory}[/{memory_color}]\n  [dim]Session ID:[/dim] [bright_black]{_current_session_id}[/bright_black]  [dim]Persistence:[/dim] [{persistence_color}]{persistence_val}[/{persistence_color}]"
+        
+        auto_approve_warning = "\n\n  [bold red blink]⚠️ AUTO-APPROVE OVERRIDE ACTIVE - ALL INTERACTIVE SAFEGUARDS BYPASSED[/bold red blink]" if getattr(config, 'AUTO_APPROVE', False) else ""
         
         return Static(
             f"[bold green]{ascii_art}[/bold green]\n"
-            f"  [bold green]{AGENT_DESCRIPTION}[/bold green]\n{status_line}\n\n"
+            f"  [bold green]{AGENT_DESCRIPTION}[/bold green]\n{status_line}{auto_approve_warning}\n\n"
             f"  [dim]Ready! Type a query or use / for commands.[/dim]\n", 
             classes="agent-bubble", id="banner"
         )
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         self._is_agent_running = False
         self._file_picker_active = False
         self._filtered_cmds = []
         chat = self.query_one("#chat-container", VerticalScroll)
         chat.mount(self._banner_widget())
         self.query_one("#prompt-input", PromptInput).focus()
+        
+        if getattr(self, "session_to_resume", None):
+            await self._load_session_by_id(self.session_to_resume)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if getattr(self, "_file_picker_active", False) or getattr(self, "_session_picker_active", False):
@@ -571,6 +594,9 @@ class BasicTuiAgent(App):
             chat = self.query_one("#chat-container", VerticalScroll)
             config_path = getattr(config, "_CONFIG_PATH", "Unknown")
             lines = [f"**System Configuration (Loaded from: `{config_path}`)**\n"]
+            is_auto_approved = getattr(config, 'AUTO_APPROVE', False)
+            if is_auto_approved:
+                lines.insert(0, "> [!WARNING]\n> **AUTO_APPROVE ENABLED**: All Interactive execution safeguards are bypassed!\n\n")
             for section, values in config.cfg.items():
                 lines.append(f"### {section.replace('_', ' ').title()}")
                 if isinstance(values, dict):
@@ -868,7 +894,67 @@ class BasicTuiAgent(App):
             aname = kwargs.get("agent_name", "Sub-Agent")
             if aname not in subagent_states:
                 subagent_states[aname] = {"calls": {}, "current_call_id": None, "current_msg": None}
-            await self.handle_agent_update(update, subagent_states[aname], chat, is_subagent=is_subagent, agent_name=aname, is_done=is_done)
+                
+            requests = kwargs.get("approval_requests", [])
+            if requests:
+                from agent_framework import Message, Content
+                from tools import WORKSPACE_TOOLS
+                responses = []
+                for req in requests:
+                    is_auto_approved = getattr(config, 'AUTO_APPROVE', False)
+                    if not is_auto_approved:
+                        widget = ApprovalWidget(req.function_call.name, agent_name=aname, arguments=getattr(req.function_call, "arguments", ""))
+                        chat.mount(widget)
+                        chat.scroll_end(animate=False)
+                        await widget.event.wait()
+                        is_approved = widget.approved
+                    else:
+                        is_approved = True
+                        
+                    call_id = getattr(req.function_call, "id", None) if hasattr(req, "function_call") else None
+                    target_widget = subagent_states[aname]["calls"].get(call_id)
+                    if not target_widget:
+                        for cw in subagent_states[aname]["calls"].values():
+                            if hasattr(req, "function_call") and cw.tool_name == req.function_call.name and not cw._done:
+                                target_widget = cw
+                                break
+                                
+                    if is_approved:
+                        args_dict = req.function_call.parse_arguments() or {}
+                        tool_func = next((t for t in WORKSPACE_TOOLS if t.name == req.function_call.name), None)
+                        try:
+                            if tool_func and hasattr(tool_func, "func"):
+                                result_str = str(tool_func.func(**args_dict))
+                            else:
+                                result_str = "Executed natively."
+                        except Exception as e:
+                            result_str = f"Error: {e}"
+                            
+                        if target_widget:
+                            target_widget.set_result(result_str)
+                            log_stream_content(aname, "function_result", {
+                                "call_id": getattr(req.function_call, "call_id", getattr(req.function_call, "id", None)),
+                                "result": result_str
+                            })
+                            
+                        responses.append(Message("assistant", [req.function_call]))
+                        responses.append(Message("tool", [Content.from_function_result(
+                            call_id=getattr(req.function_call, "call_id", getattr(req.function_call, "id", None)),
+                            result=result_str
+                        )]))
+                    else:
+                        if target_widget:
+                            target_widget.set_result("Denied by user.")
+                            log_stream_content(aname, "function_result", {
+                                "call_id": getattr(req.function_call, "call_id", getattr(req.function_call, "id", None)),
+                                "result": "Denied by user."
+                            })
+                        responses.append(Message("assistant", [req.function_call]))
+                        responses.append(Message("user", [req.to_function_approval_response(False)]))
+                return responses
+                
+            if update or is_done:
+                await self.handle_agent_update(update, subagent_states[aname], chat, is_subagent=is_subagent, agent_name=aname, is_done=is_done)
             
         # Create agent (re-reads config) and get session (None if conversational memory disabled)
         agent, session = create_local_agent(builder=self.builder, subagent_callback=ui_callback)
@@ -920,55 +1006,61 @@ class BasicTuiAgent(App):
                 new_inputs = [query] if isinstance(current_input, str) else list(current_input)
                 
                 for req in user_input_requests:
-                    # Mount the interactive widget
-                    widget = ApprovalWidget(req.function_call.name)
-                    chat.mount(widget)
-                    chat.scroll_end(animate=False)
+                    # Mount the interactive widget conditionally
+                    is_auto_approved = getattr(config, 'AUTO_APPROVE', False)
+                    if not is_auto_approved:
+                        widget = ApprovalWidget(req.function_call.name, agent_name="Orchestrator", arguments=getattr(req.function_call, "arguments", ""))
+                        chat.mount(widget)
+                        chat.scroll_end(animate=False)
+                        
+                        # Pause loop to wait for physical user interaction event loop
+                        await widget.event.wait()
+                        is_approved = widget.approved
+                    else:
+                        is_approved = True
                     
-                    # Pause loop to wait for physical user interaction event loop
-                    await widget.event.wait()
-                    
-                    # Temporarily update the UI to show execution has begun without removing it from active state.
                     call_id = getattr(req.function_call, "id", None) if hasattr(req, "function_call") else None
                     target_widget = state["calls"].get(call_id)
-                    
                     if not target_widget:
-                        for cid, cw in state["calls"].items():
+                        for cw in state["calls"].values():
                             if hasattr(req, "function_call") and cw.tool_name == req.function_call.name and not cw._done:
                                 target_widget = cw
                                 break
-                    
-                    if target_widget and widget.approved:
+                                
+                    if is_approved:
                         args_dict = req.function_call.parse_arguments() or {}
-                        # Statically find the python function to execute UI updates explicitly 
+                        from tools import WORKSPACE_TOOLS
                         tool_func = next((t for t in WORKSPACE_TOOLS if t.name == req.function_call.name), None)
-                        
                         try:
                             if tool_func and hasattr(tool_func, "func"):
-                                # Run sync evaluation natively to stop the TUI loading spinner
                                 result_str = str(tool_func.func(**args_dict))
                             else:
                                 result_str = "Executed natively."
                         except Exception as e:
                             result_str = f"Error: {e}"
                             
-                        target_widget.set_result(result_str)
-                        
-                        # Bypass the framework double-execution and just feed the literal explicitly back 
+                        if target_widget:
+                            target_widget.set_result(result_str)
+                            log_stream_content("Agent", "function_result", {
+                                "call_id": getattr(req.function_call, "call_id", getattr(req.function_call, "id", None)),
+                                "result": result_str
+                            })
+                            
+                        from agent_framework import Content
                         new_inputs.append(Message("assistant", [req.function_call]))
                         new_inputs.append(Message("tool", [Content.from_function_result(
-                            call_id=req.function_call.call_id,
+                            call_id=getattr(req.function_call, "call_id", getattr(req.function_call, "id", None)),
                             result=result_str
                         )]))
-                        
-                    elif target_widget and not widget.approved:
-                        target_widget.set_result("Denied by user.")
+                    else:
+                        if target_widget:
+                            target_widget.set_result("Denied by user.")
+                            log_stream_content("Agent", "function_result", {
+                                "call_id": getattr(req.function_call, "call_id", getattr(req.function_call, "id", None)),
+                                "result": "Denied by user."
+                            })
                         new_inputs.append(Message("assistant", [req.function_call]))
                         new_inputs.append(Message("user", [req.to_function_approval_response(False)]))
-                    else:
-                        # Fallback for weird edge cases without widgets
-                        new_inputs.append(Message("assistant", [req.function_call]))
-                        new_inputs.append(Message("user", [req.to_function_approval_response(widget.approved)]))
                 
                 # Push back upstream and flush state 
                 current_input = new_inputs
@@ -1076,7 +1168,7 @@ class BasicTuiAgent(App):
         self.query_one("#command-list", OptionList).display = False
         await self._load_session_by_id(session_id)
 
-async def run_cli(builder, prompt: str = None, prompt_file: str = None):
+async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_id: str = None):
     """Run the agent in headless mode, streaming results to stdout."""
     config_quotas = config.cfg.get("settings", {}).get("quotas", {})
     sub_quotas = {}
@@ -1090,6 +1182,19 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None):
     async def cli_subagent_callback(update, is_subagent=True, is_done=False, **kwargs):
         agent_name = kwargs.get("agent_name") or getattr(update, "author_name", None) or "Sub-Agent"
         
+        requests = kwargs.get("approval_requests", [])
+        if requests:
+            from agent_framework import Message
+            responses = []
+            for req in requests:
+                is_approved = getattr(config, 'AUTO_APPROVE', False)
+                if is_approved:
+                    sys.stdout.write(f"\n\033[93m[{agent_name}] Auto-approving {req.function_call.name}...\033[0m\n")
+                else:
+                    sys.stdout.write(f"\n\033[91m[{agent_name}] Denied {req.function_call.name} (Auto-approve disabled).\033[0m\n")
+                responses.append(Message("user", [req.to_function_approval_response(is_approved)]))
+            return responses
+            
         if is_done:
             sys.stdout.write(f"\n\033[92m[{agent_name}] Finished.\033[0m\n")
             return
@@ -1102,7 +1207,40 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None):
             if content.type == "function_call" and content.call_id:
                 sys.stdout.write(f"\n\033[93m[{agent_name}] Calling {content.name}...\033[0m\n")
 
-    agent, session = create_local_agent(builder=builder, subagent_callback=cli_subagent_callback)
+    session_data = None
+    if session_id:
+        log_dir = Path.home() / f".{config.APP_NAME}" / "sessions"
+        log_file = log_dir / f"session_{session_id}.json"
+        
+        if not log_file.exists():
+            sys.stdout.write(f"\n\033[91mError: Session '{session_id}' not found.\033[0m\n")
+            return
+            
+        try:
+            with open(log_file, "r") as f:
+                data = json.load(f)
+            
+            global _session_events, _current_session_id, _current_call_by_source, _current_text_by_source
+            _session_events = data.get("ui_events", [])
+            _current_session_id = session_id
+            _current_call_by_source.clear()
+            _current_text_by_source.clear()
+            
+            orchestrator_module.reset_session()
+            session_data = data.get("agent_session", None)
+            
+            config.cfg["settings"]["enable_session_persistence"] = True
+            
+        except Exception as e:
+            sys.stdout.write(f"\n\033[91mError loading session '{session_id}': {e}\033[0m\n")
+            return
+
+    if prompt_file:
+        log_prompt(f"Started headless mode using prompt file: {prompt_file}")
+    elif prompt:
+        log_prompt(prompt)
+
+    agent, session = create_local_agent(builder=builder, subagent_callback=cli_subagent_callback, session_data=session_data)
 
     if prompt_file:
         try:
@@ -1116,19 +1254,73 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None):
             sys.stdout.write(f"\n\033[91mError reading prompt file: {e}\033[0m\n")
             return
             
+    # Print Headless Configuration Banner
+    config_path = getattr(config, "_CONFIG_PATH", "Unknown")
+    workspace_type = config.cfg.get("settings", {}).get("workspace", {}).get("type", "memory")
+    workspace_dir = config.cfg.get("settings", {}).get("workspace", {}).get("dir", ".")
+    workspace_disp = f"Disk ({workspace_dir})" if workspace_type == "disk" else "In-Memory"
+    
+    endpoint = config.cfg.get("api", {}).get("openai_base_url", "Unknown")
+    model = config.cfg.get("api", {}).get("openai_model", "Unknown")
+    
+    thinking = "ON" if config.cfg.get("settings", {}).get("enable_thinking", False) else "OFF"
+    thinking_color = "32" if thinking == "ON" else "31"
+    
+    memory = "ON" if config.cfg.get("settings", {}).get("enable_conversational_memory", False) else "OFF"
+    memory_color = "32" if memory == "ON" else "31"
+    
+    persistence_val = "ON" if config.cfg.get("settings", {}).get("enable_session_persistence", False) else "OFF"
+    persistence_color = "32" if persistence_val == "ON" else "31"
+    
+    sid = "N/A (Memory disabled)" if not session else _current_session_id
+    
+    auto_approve_warning = "\n  \033[5;31m⚠️ AUTO-APPROVE OVERRIDE ACTIVE - ALL INTERACTIVE SAFEGUARDS BYPASSED\033[0m" if getattr(config, 'AUTO_APPROVE', False) else ""
+    
+    sys.stdout.write(
+        f"\n\033[1;32m{config.APP_TITLE} (Headless Mode)\033[0m\n"
+        f"  \033[2mConfig Loaded:\033[0m \033[90m{config_path}\033[0m  \033[2mWorkspace:\033[0m \033[33m{workspace_disp}\033[0m\n"
+        f"  \033[2mEndpoint:\033[0m \033[36m{endpoint}\033[0m  \033[2mModel:\033[0m \033[36m{model}\033[0m  \033[2mThinking:\033[0m \033[{thinking_color}m{thinking}\033[0m  \033[2mConv Memory:\033[0m \033[{memory_color}m{memory}\033[0m\n"
+        f"  \033[2mSession ID:\033[0m \033[90m{sid}\033[0m  \033[2mPersistence:\033[0m \033[{persistence_color}m{persistence_val}\033[0m"
+        f"{auto_approve_warning}\n"
+    )
+    
     sys.stdout.write(f"\n\033[1mStarting task:\033[0m {prompt[:100]}...\n\n")
     start_time = datetime.now()
     
     try:
-        stream = agent.run(prompt, session=session, stream=True)
-        async for update in stream:
-            for content in update.contents:
-                if content.type == "text" and content.text:
-                    sys.stdout.write(content.text)
-                    sys.stdout.flush()
-                elif content.type == "function_call" and content.call_id:
-                    sys.stdout.write(f"\n\033[96m[Agent] Calling {content.name}...\033[0m\n")
+        from agent_framework import Message
+        current_input = prompt
+        has_requests = True
+        
+        while has_requests:
+            has_requests = False
+            user_input_requests = []
+            
+            stream = agent.run(current_input, session=session, stream=True)
+            async for update in stream:
+                for content in update.contents:
+                    if content.type == "text" and content.text:
+                        log_stream_content("Agent", "text", {"text": content.text})
+                        sys.stdout.write(content.text)
+                        sys.stdout.flush()
+                    elif content.type == "function_call" and content.call_id:
+                        sys.stdout.write(f"\n\033[96m[Agent] Calling {content.name}...\033[0m\n")
+                if getattr(update, "user_input_requests", None):
+                    user_input_requests.extend(update.user_input_requests)
                     
+            if user_input_requests:
+                has_requests = True
+                new_inputs = [prompt] if isinstance(current_input, str) else list(current_input)
+                for req in user_input_requests:
+                    is_approved = getattr(config, 'AUTO_APPROVE', False)
+                    if is_approved:
+                        sys.stdout.write(f"\n\033[93m[Agent] Auto-approving {req.function_call.name}...\033[0m\n")
+                    else:
+                        sys.stdout.write(f"\n\033[91m[Agent] Denied {req.function_call.name} (Auto-approve disabled).\033[0m\n")
+                    new_inputs.append(Message("user", [req.to_function_approval_response(is_approved)]))
+                current_input = new_inputs
+                
+        _write_log()
         elapsed = datetime.now() - start_time
         sys.stdout.write(f"\n\n\033[1mTask completed in {elapsed.total_seconds():.1f} seconds.\033[0m\n")
     except Exception as e:
@@ -1142,13 +1334,40 @@ def cli_main(builder):
     parser.add_argument("--prompt", "-p", type=str, help="Run non-interactively with a specific prompt (headless mode)", default=None)
     parser.add_argument("--prompt-file", "-f", type=str, help="Run non-interactively reading a JSON context file", default=None)
     parser.add_argument("--web", "-w", action="store_true", help="Serve the TUI as a web application")
+    parser.add_argument("--auto-approve", action="store_true", help="Automatically approve all tool execution requests")
+    parser.add_argument("--list-sessions", action="store_true", help="List saved sessions and exit")
+    parser.add_argument("--resume", type=str, help="Resume a specific session by ID. Works in headless mode if --prompt is given, or in TUI mode otherwise.", default=None)
     args, _ = parser.parse_known_args()
+    
+    import config
+    config.AUTO_APPROVE = args.auto_approve
+
+    if args.list_sessions:
+        log_dir = Path.home() / f".{config.APP_NAME}" / "sessions"
+        if not log_dir.exists():
+            sys.stdout.write("No sessions found.\n")
+            sys.exit(0)
+        files = sorted(log_dir.glob("session_*.json"), key=os.path.getmtime, reverse=True)
+        if not files:
+            sys.stdout.write("No sessions found.\n")
+            sys.exit(0)
+        sys.stdout.write("Saved Sessions:\n")
+        import json
+        for f in files[:10]:
+            try:
+                with open(f, "r") as fs:
+                    j = json.load(fs)
+                    ts = j.get("timestamp", "Unknown")
+                    sid = j.get("session_id", f.stem.replace('session_', ''))
+                    sys.stdout.write(f"- ID: {sid} (Date: {ts})\n")
+            except Exception:
+                sys.stdout.write(f"- Invalid session file: {f.name}\n")
+        sys.exit(0)
 
     if args.prompt_file:
-        asyncio.run(run_cli(builder, prompt_file=args.prompt_file))
+        asyncio.run(run_cli(builder, prompt_file=args.prompt_file, session_id=args.resume))
     elif args.prompt:
-        log_prompt(args.prompt)
-        asyncio.run(run_cli(builder, prompt=args.prompt))
+        asyncio.run(run_cli(builder, prompt=args.prompt, session_id=args.resume))
     elif args.web:
         try:
             from textual_serve.server import Server
@@ -1172,7 +1391,7 @@ def cli_main(builder):
         server = Server(command_str)
         server.serve()
     else:
-        BasicTuiAgent(builder).run()
+        BasicTuiAgent(builder, session_to_resume=args.resume).run()
 
 if __name__ == "__main__":
     pass

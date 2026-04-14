@@ -19,6 +19,10 @@ You will find the scaffold project and documentation for how to create agents in
 
 > **CRITICAL PATH RESOLUTION FOR AI AGENTS:** Since this skill may be loaded from a global skills directory (e.g., `~/opencode/skills/`) or local skills directory (e.g., `.opencode/skills/`), all file paths mentioned below (like `resources/...` and `examples/...`) are relative to the folder containing this `SKILL.md` file. You **MUST** resolve these to their absolute paths using `SKILL.md`'s location before using your tools to list, read, or copy them. Do not assume they are in the current working directory.
 
+> [!TIP]
+> **CONTEXT MANAGEMENT: AVOID BLINDLY READING ALL FILES.**
+> Your context window is precious! Do **not** blindly read every `.md` document in the `resources/docs/` folder. Usually, you only need to read `ARCHITECTURE.md` and `IMPLEMENTATION.md` and possibly `TOOLS.md`. Skip documents like `SHELL.md` or `MAILBOX.md` unless the user explicitly requests those specific advanced capabilities.
+
 **MANDATORY STARTING STEPS FOR BUILDING NEW APPLICATIONS:** 
 - **STAGE 1 (Baseline Scaffold):** First, you **MUST** copy the entire contents of the `examples/basic-tui-agent/` directory to the main project working directory as your primary starting point, and read its `README.md`.
     - Always rely on `pyproject.toml` for adding new dependencies. Do **not** create a `requirements.txt` file.
@@ -36,8 +40,8 @@ You will find the scaffold project and documentation for how to create agents in
 > - Read the code, mimic its native structural patterns exactly, and only inject the specific business logic the user requested.
 
 1. **[Architecture](resources/docs/ARCHITECTURE.md)**: Rules for context management and Flat vs Sub-Agent pipelines. **(CRITICAL: Configure sub-agents via the AgentBuilder SDK inside `src/app.py`!)**
-2. **[Implementation](resources/docs/IMPLEMENTATION.md)**: Vital Python boilerplates for `<think>` tag scraping, TUI integrations, and Headless CLI (`--prompt`) batch processing. Includes rules on deleting (`pruning`) optional features like `markitdown` parsers or `web_search` to save context if unneeded.
-3. **[Tools](resources/docs/TOOLS.md)**: Copy-paste snippets for Web Search, Parsing, and Virtual FS.
+2. **[Implementation](resources/docs/IMPLEMENTATION.md)**: Vital Python boilerplates for `<think>` tag scraping, TUI integrations, and Headless CLI (`--prompt`, `--auto-approve`, `--resume`) batch processing. Includes rules on deleting (`pruning`) optional features like `markitdown` parsers or `web_search` to save context if unneeded.
+3. **[Tools](resources/docs/TOOLS.md)**: Copy-paste snippets for Web Search, Parsing, Virtual FS, and **[Shell Execution](resources/docs/SHELL.md)**. (*Note: The shell tool introduces monumental security risks. You must explicitly remove `run_shell_command` from the scaffold if unused, unless the user specifically demands bash or compilation capabilities!*)
 4. **[UI Guidelines](resources/docs/UI_GUIDELINES.md)**: Textual rendering rules, spanning the `OptionList` dropdown components and the collapsible workspace file viewers natively triggered via `/files` commands (dynamically reads from in-memory or on-disk based on `config.yaml`).
 5. **[Coding Guidelines](resources/docs/CODING_GUIDELINES.md)**: LLM-focused code quality constraints (e.g. flat directory layouts over nesting, strict type hints, and eliminating useless inline comments to preserve tokens).
 6. **[Prompting & Delegation Guidelines](resources/docs/PROMPTING.md)**: Architectural rules for structuring Microsoft Agent-Framework pipelines.

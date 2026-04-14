@@ -11,6 +11,17 @@ import contextvars
 # Module-level session for conversational memory persistence
 _session = None
 
+def apply_tool_permissions(tools: list) -> list:
+    """Dynamically applies approval boundaries mapped in config.yaml."""
+    perms = config.cfg.get("settings", {}).get("permissions", {})
+    for t in tools:
+        if hasattr(t, "name") and hasattr(t, "approval_mode"):
+            if perms.get(t.name) == "require_approval":
+                t.approval_mode = "always_require"
+            else:
+                t.approval_mode = "never_require"
+    return tools
+
 def _build_client():
     return OpenAIChatCompletionClient(
         base_url=config.cfg["api"]["openai_base_url"],
@@ -27,13 +38,12 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
     client = _build_client()
     
     # -------------------------------------------------------------
-    # SUB-AGENT DELEGATION EXAMPLE
+    # SDK Bounded Dispatcher
     # -------------------------------------------------------------
     # [!CAUTION] RULES FOR LLM CODING ASSISTANTS EDITING THIS:
-    # 1. LOCATION: ALWAYS define delegation tools INSIDE this `create_local_agent()` function. DO NOT move them to `tools/`.
-    # 2. NO HALLUCINATIONS: DO NOT invent global counters or use `_get_next_id()` to name sub-agents dynamically. Hardcode `name="SubAgentName"` below.
-    # 3. REUSE: Read `IMPLEMENTATION.md` Section 6 before attempting to add or modify sub-agent delegations. Do not rewrite from scratch.
-    # 4. DEPENDENCY ORDERING (CRITICAL): Python evaluates these local closure functions sequentially. If Sub-Agent A uses a delegation tool for Sub-Agent B, you MUST define Sub-Agent B's tool completely ABOVE Sub-Agent A's tool. Otherwise, you will get a NameError or falsely omit the schema!
+    # 1. This engine module is OUT OF BOUNDS. Do not hardcode sub-agents here.
+    # 2. Sub-agents MUST be defined in `src/app.py` via `SubAgentConfig`.
+    # 3. The logic below dynamically reads the builder config and mounts the TUI streams.
     # -------------------------------------------------------------
     # -------------------------------------------------------------
     # Bounded Concurrent Sub-Agent Dispatcher
@@ -55,7 +65,7 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                             target_config = conf
                             break
                             
-                sub_tools = target_config.tools.copy() if target_config else []
+                sub_tools = apply_tool_permissions(target_config.tools.copy() if target_config else [])
                 if think_tool not in sub_tools:
                     sub_tools.append(think_tool)
                     
@@ -80,13 +90,34 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                     }
                 )
                 final_text = ""
-                stream = sub_agent.run(instructions, stream=True)
-                async for update in stream:
-                    if subagent_callback:
-                        await subagent_callback(update, is_subagent=True, agent_name=f"SubAgent_{task_name}")
-                    for c in update.contents:
-                        if c.type == "text" and c.text:
-                            final_text += c.text
+                current_input = instructions
+                has_requests = True
+                while has_requests:
+                    has_requests = False
+                    user_input_requests = []
+                    
+                    stream = sub_agent.run(current_input, stream=True)
+                    async for update in stream:
+                        if subagent_callback:
+                            await subagent_callback(update, is_subagent=True, agent_name=f"SubAgent_{task_name}")
+                        for c in update.contents:
+                            if c.type == "text" and c.text:
+                                final_text += c.text
+                                
+                        if getattr(update, "user_input_requests", None):
+                            user_input_requests.extend(update.user_input_requests)
+                            
+                    if user_input_requests:
+                        has_requests = True
+                        responses = []
+                        if subagent_callback:
+                            responses = await subagent_callback(None, is_subagent=True, agent_name=f"SubAgent_{task_name}", approval_requests=user_input_requests)
+                            
+                        new_inputs = [current_input] if isinstance(current_input, str) else list(current_input)
+                        if responses:
+                            new_inputs.extend(responses)
+                        current_input = new_inputs
+                        
                 if subagent_callback:
                     await subagent_callback(None, is_subagent=True, agent_name=f"SubAgent_{task_name}", is_done=True)
 
@@ -137,7 +168,7 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
     # -------------------------------------------------------------
     # -------------------------------------------------------------
     # Orchestrator retains full access to WORKSPACE_TOOLS but gains `delegate_tasks`
-    tools_list = builder.tools.copy()
+    tools_list = apply_tool_permissions(builder.tools.copy())
     if builder.sub_agents:
         tools_list.append(delegate_tasks)
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

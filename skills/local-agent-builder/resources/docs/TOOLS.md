@@ -32,3 +32,10 @@ You do not need to implement filesystem tools manually. The scaffold includes fu
 Do not manually parse binary files with PyPDF2 or Tesseract. Use the centralized parsing implementations found inside `examples/basic-tui-agent/src/utils/parsers.py`:
 - **For Standard Documents:** The scaffold incorporates Microsoft's `markitdown` for structural conversion of files.
 - **For Heavy OCR / Scanned Layouts:** The scaffold leverages `@llamaindex/liteparse` via a local NPX subprocess hook. Always deploy this path when visual parsing is strictly demanded.
+
+## 4. Bash Execution & Sandboxing
+**Rule: Avoid assigning shell capabilities unless specifically requested.**
+
+The `basic-tui-agent` exports a highly restricted `run_shell_command` wrapper natively within its tool suite. This tool implements strict Humam-In-The-Loop approval hooks and natively wraps execution commands securely in Anthropic's Sandbox Runtime (`srt`).
+
+For detailed implementation caveats and OS-level limitations, refer strictly to the **[`SHELL.md`](./SHELL.md)** instructions.
