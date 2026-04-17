@@ -1,5 +1,6 @@
 import os
 import asyncio
+import re
 from agent_framework.openai import OpenAIChatCompletionClient
 from agent_framework import tool, AgentSession
 from tools import WORKSPACE_TOOLS, tool_quotas_ctx, with_quota, think_tool
@@ -21,6 +22,19 @@ def apply_tool_permissions(tools: list) -> list:
             else:
                 t.approval_mode = "never_require"
     return tools
+
+def _sanitize_name(name: str) -> str:
+    """Ensure the name matches ^[a-zA-Z0-9_-]+$ for OpenAI API."""
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+
+def _get_default_options():
+    options = {"temperature": 0.0}
+    # OpenAI's official API rejects "chat_template_kwargs"
+    if "api.openai.com" not in config.cfg.get("api", {}).get("openai_base_url", ""):
+        options["extra_body"] = {
+            "chat_template_kwargs": {"enable_thinking": config.cfg["settings"].get("enable_thinking", False)}
+        }
+    return options
 
 def _build_client():
     return OpenAIChatCompletionClient(
@@ -79,15 +93,10 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                     sub_instr = SUBAGENT_INSTRUCTIONS.format(date=current_date, task_name=task_name)
 
                 sub_agent = client.as_agent(
-                    name=f"SubAgent_{task_name.replace(' ', '_')}",
+                    name=_sanitize_name(f"SubAgent_{task_name}"),
                     instructions=sub_instr,
                     tools=sub_tools,
-                    default_options={
-                        "temperature": 0.0,
-                        "extra_body": {
-                            "chat_template_kwargs": {"enable_thinking": config.cfg["settings"]["enable_thinking"]}
-                        }
-                    }
+                    default_options=_get_default_options()
                 )
                 final_text = ""
                 current_input = instructions
@@ -178,7 +187,7 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
     q_orch_fetch = 10
 
     agent = client.as_agent(
-        name=builder.name,
+        name=_sanitize_name(builder.name),
         instructions=builder.instructions.format(
             date=current_date,
             delegation_instructions=SUBAGENT_DELEGATION_INSTRUCTIONS.format(
@@ -188,12 +197,7 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
             fetch_quota=q_orch_fetch
         ),
         tools=tools_list,
-        default_options={
-            "temperature": 0.0,
-            "extra_body": {
-                "chat_template_kwargs": {"enable_thinking": config.cfg["settings"]["enable_thinking"]}
-            }
-        }
+        default_options=_get_default_options()
     )
     
     session = None
