@@ -11,6 +11,7 @@ import contextvars
 
 # Module-level session for conversational memory persistence
 _session = None
+delegation_depth_ctx = contextvars.ContextVar('delegation_depth_ctx', default=0)
 
 def apply_tool_permissions(tools: list) -> list:
     """Dynamically applies approval boundaries mapped in config.yaml."""
@@ -68,6 +69,8 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
 
     async def _run_single_task(task_name: str, instructions: str, agent_id: str = None) -> str:
         async with sem:
+            parent_depth = delegation_depth_ctx.get()
+            depth_token = delegation_depth_ctx.set(parent_depth + 1)
             token_setter = holds_token.set(True)
             try:
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -135,6 +138,7 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                 return f"## Result for {task_name}\n{final_text}\n---"
             finally:
                 holds_token.reset(token_setter)
+                delegation_depth_ctx.reset(depth_token)
 
     # -------------------------------------------------------------
     # [!CAUTION] CONCURRENCY ARCHITECTURE FOR LLM CODING ASSISTANTS:

@@ -28,3 +28,8 @@ When building a package (like `src/tools/`), you must ensure that all tools from
 
 ## 5. File Scoping & Single Responsibility
 Keep highly related tools inside identical files to preserve conceptual context. However, do not let files exceed a reasonable complexity boundary. If you are adding a completely unrelated domain—such as tools to execute PostgreSQL queries—do not lazily bolt them inside `fs.py` just to save a file creation step. Make a new `src/tools/sql.py` file, and append it to `src/tools/__init__.py`.
+
+## 6. Variable and Import Preservation (Strict Backward Compatibility)
+The core engine (`src/engine/`) imports specific variables and constants from customization files (such as `ORCHESTRATOR_INSTRUCTIONS`, `SUBAGENT_INSTRUCTIONS`, and `SUBAGENT_DELEGATION_INSTRUCTIONS` from `src/prompts.py`).
+- **NEVER rename or delete these variables in `src/prompts.py`:** If you customize or rename these instructions to fit a specific domain (such as renaming `SUBAGENT_INSTRUCTIONS` to `SEARCH_SUBAGENT_INSTRUCTIONS`), you MUST keep the original variable name as an alias pointing to your new name (e.g., `SUBAGENT_INSTRUCTIONS = SEARCH_SUBAGENT_INSTRUCTIONS`).
+- **Check imports before altering exports:** Before modifying any exported variables or function names in `src/prompts.py`, `src/config.py`, or `src/tools/__init__.py`, grep the entire codebase to see where they are imported or used. Ensure you do not break any imports in the core engine.

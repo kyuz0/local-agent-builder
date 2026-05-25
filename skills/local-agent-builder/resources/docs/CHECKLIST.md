@@ -11,6 +11,7 @@
 - [ ] **String Interpolation Safety:** Did I avoid using single braces `{}` for un-interpolated placeholder variables inside system prompts passed to `.format()`? (e.g. use `{{run_folder}}` or `<run_folder>` so Python doesn't throw a fatal `KeyError`).
 - [ ] **Anti-Looping Traps:** Did I inject a strict `<Anti-Looping>` clause into my `ORCHESTRATOR_INSTRUCTIONS` demanding that it NEVER call the exact same tool with identical arguments twice in a row? (Crucial to break `write_todos` infinite loops on small local models!).
 - [ ] **Application Branding & Packaging:** Did I rename the default `basic-tui-agent` into a sensible, task-specific identity? This requires updating the `name` field in `pyproject.toml`, the `[project.scripts]` executable definition, AND the `APP_NAME`, `APP_TITLE`, and `APP_DESCRIPTION` constants at the top of `src/config.py`.
+- [ ] **Import Preservation & Compatibility:** Did I ensure that I did not delete or rename variables/constants imported by the core engine (such as `ORCHESTRATOR_INSTRUCTIONS`, `SUBAGENT_INSTRUCTIONS`, or `SUBAGENT_DELEGATION_INSTRUCTIONS` from `src/prompts.py`)? If I renamed any prompts, did I preserve the original names as aliases pointing to the new variables to prevent fatal `ImportError` crashes at startup?
 
 ### 2. Sub-Agent Delegation (Strict Validation)
 - [ ] **Location Restraint:** Are ALL of my sub-agents configured purely as `SubAgentConfig` definitions inside `src/app.py`? (Do not try to edit `engine/orchestrator.py` manually).

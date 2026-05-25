@@ -4,7 +4,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, OptionList, Static, Collapsible, RichLog, Button
 from textual.containers import VerticalScroll, Horizontal, Vertical
 from rich.markdown import Markdown
-from engine.orchestrator import create_local_agent, reset_session
+from engine.orchestrator import create_local_agent, reset_session, delegation_depth_ctx
 import engine.orchestrator as orchestrator_module
 import asyncio
 import json
@@ -68,8 +68,10 @@ def log_prompt(prompt: str):
     _current_text_by_source.clear()
     _write_log()
 
-def log_stream_content(source: str, content_type: str, raw_data_dict: dict):
+def log_stream_content(source: str, content_type: str, raw_data_dict: dict, depth: int = None):
     global _session_events, _current_call_by_source, _current_text_by_source
+    if depth is None:
+        depth = delegation_depth_ctx.get()
     
     if content_type == "text" or content_type == "reasoning":
         text_val = raw_data_dict.get("text")
@@ -84,7 +86,8 @@ def log_stream_content(source: str, content_type: str, raw_data_dict: dict):
                 "timestamp": datetime.now().isoformat(),
                 "source": source,
                 "type": content_type,
-                "data": {"text": text_val}
+                "data": {"text": text_val},
+                "depth": depth
             }
             _session_events.append(entry)
             _current_text_by_source[source] = len(_session_events) - 1
@@ -105,7 +108,8 @@ def log_stream_content(source: str, content_type: str, raw_data_dict: dict):
                     "call_id": call_id,
                     "name": name,
                     "arguments": arguments
-                }
+                },
+                "depth": depth
             }
             _session_events.append(entry)
             _current_call_by_source[source] = len(_session_events) - 1
@@ -123,7 +127,8 @@ def log_stream_content(source: str, content_type: str, raw_data_dict: dict):
             "timestamp": datetime.now().isoformat(),
             "source": source,
             "type": "function_result",
-            "data": raw_data_dict
+            "data": raw_data_dict,
+            "depth": depth
         }
         _session_events.append(entry)
         
@@ -135,7 +140,8 @@ def log_stream_content(source: str, content_type: str, raw_data_dict: dict):
             "timestamp": datetime.now().isoformat(),
             "source": source,
             "type": content_type,
-            "data": raw_data_dict
+            "data": raw_data_dict,
+            "depth": depth
         }
         _session_events.append(entry)
         
@@ -664,7 +670,7 @@ class BasicTuiAgent(App):
             etype = event.get("type")
             data = event.get("data", {})
             
-            depth = 1 if is_subagent else 0
+            depth = event.get("depth", 1 if is_subagent else 0)
             
             def apply_depth_style(widget):
                 if depth > 0:
@@ -711,13 +717,17 @@ class BasicTuiAgent(App):
 
     async def handle_agent_update(self, update, state, chat, is_subagent=False, agent_name=None, is_done=False):
         import time
+        # Calculate dynamic nesting depth based on open, unresolved tool calls in the current state
+        active_tools = sum(1 for w in state.get("calls", {}).values() if not w._done)
+        depth = delegation_depth_ctx.get() + active_tools
+
         if is_done and is_subagent:
             widget = state.get(f"widget_{agent_name}")
             if widget:
                 start_time = state.get(f"start_time_{agent_name}", time.time())
                 elapsed = time.time() - start_time
                 widget.update(f"[green]✅[/green] [bold]{agent_name}[/bold] finished ({elapsed:.1f}s)")
-                log_stream_content(agent_name, "subagent_end", {"elapsed": elapsed})
+                log_stream_content(agent_name, "subagent_end", {"elapsed": elapsed}, depth=depth)
             return
 
         # --- Extract reasoning_content from raw chunk delta ---
@@ -740,10 +750,6 @@ class BasicTuiAgent(App):
                 state["processing_widget"] = None
 
         source_name = agent_name if agent_name else ("Sub-Agent" if is_subagent else "Agent")
-        
-        # Calculate dynamic nesting depth based on open, unresolved tool calls in the current state
-        active_tools = sum(1 for w in state.get("calls", {}).values() if not w._done)
-        depth = (1 + active_tools) if is_subagent else active_tools
 
         def apply_depth_style(widget):
             if depth > 0:
@@ -763,11 +769,11 @@ class BasicTuiAgent(App):
                 state[f"widget_{agent_name}"] = status_widget
                 chat.mount(apply_depth_style(status_widget))
                 self._safe_scroll_end(chat)
-                log_stream_content(agent_name, "subagent_start", {})
+                log_stream_content(agent_name, "subagent_start", {}, depth=depth)
 
 
         if raw_reasoning:
-            log_stream_content(source_name, "reasoning", {"text": raw_reasoning})
+            log_stream_content(source_name, "reasoning", {"text": raw_reasoning}, depth=depth)
             if state.get("thinking_widget") is None:
                 tw = ThinkingWidget()
                 state["thinking_widget"] = tw
@@ -778,7 +784,7 @@ class BasicTuiAgent(App):
         for content in update.contents:
             if content.type == "text_reasoning":
                 reasoning_text = content.text or ""
-                log_stream_content(source_name, "reasoning", {"text": reasoning_text})
+                log_stream_content(source_name, "reasoning", {"text": reasoning_text}, depth=depth)
                 if not reasoning_text and content.protected_data:
                     try:
                         details = json.loads(content.protected_data)
@@ -803,7 +809,7 @@ class BasicTuiAgent(App):
                     continue
 
                 if content.text:
-                    log_stream_content(source_name, "text", {"text": content.text})
+                    log_stream_content(source_name, "text", {"text": content.text}, depth=depth)
                     
                 if state.get("thinking_widget") is not None:
                     state["thinking_widget"].finish()
@@ -820,7 +826,7 @@ class BasicTuiAgent(App):
                 arguments = getattr(content, "arguments", "") or ""
                 log_stream_content(source_name, "function_call", {
                     "call_id": call_id, "name": name, "arguments": arguments
-                })
+                }, depth=depth)
                 
                 state["current_msg"] = None
                 if content.call_id:
@@ -842,7 +848,7 @@ class BasicTuiAgent(App):
             elif content.type == "function_result":
                 call_id = getattr(content, "call_id", None)
                 result = getattr(content, "result", "")
-                log_stream_content(source_name, "function_result", {"call_id": call_id, "result": str(result)})
+                log_stream_content(source_name, "function_result", {"call_id": call_id, "result": str(result)}, depth=depth)
                 
                 state["current_msg"] = None
                 target_widget = None
