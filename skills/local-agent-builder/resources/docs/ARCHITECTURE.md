@@ -92,6 +92,14 @@ Managing context windows is critical for local LLMs. You must actively prevent "
 
 **Reference Implementation:** Do not write delegation loop handlers from scratch. Simply define your sub-agents in `src/app.py` via `SubAgentConfig` and the Engine handles the concurrency logic explicitly documented in the framework at `examples/basic-tui-agent/src/engine/orchestrator.py`.
 
+### Nested Sub-Agent Delegation (Multi-Tier)
+The orchestration engine natively supports multi-level nested delegation (e.g. Orchestrator -> Search Sub-Agent -> Page Analyzer Sub-Agent) out-of-the-box.
+To configure nested sub-agents:
+1. **Declare all sub-agents in the flat registry:** Define every sub-agent as a `SubAgentConfig` in `src/app.py` (e.g. `search_agent = SubAgentConfig(...)` and `analyzer_agent = SubAgentConfig(...)`).
+2. **Register them with the main builder:** Pass all sub-agents in the flat `sub_agents` list of the `AgentBuilder` constructor in `src/app.py` (e.g. `sub_agents=[search_agent, analyzer_agent]`).
+3. **No Orchestrator Edits:** The orchestration engine automatically injects the `delegate_tasks` tool to both the orchestrator and all sub-agents. You **MUST NOT** modify `src/engine/orchestrator.py` or write custom delegation tools.
+4. **Invoke via `delegate_tasks`:** The parent sub-agent (e.g., Searcher) can call `delegate_tasks` specifying the child sub-agent's name as the `agent_id` parameter (e.g. `agent_id="Analyzer"`).
+
 ## 3. Strict Workflow DAGs (Deterministic Pipelines)
 
 Sometimes conversational orchestration introduces too much unpredictability. If an operation has strong, sequential sub-steps (e.g., "Process Step A, then pass to Step B"), use Agent Framework's `.add_edge()` pipeline. 

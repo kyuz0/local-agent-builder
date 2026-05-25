@@ -80,6 +80,8 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                             break
                             
                 sub_tools = apply_tool_permissions(target_config.tools.copy() if target_config else [])
+                if builder.sub_agents and delegate_tasks not in sub_tools:
+                    sub_tools.append(delegate_tasks)
                 if think_tool not in sub_tools:
                     sub_tools.append(think_tool)
                     

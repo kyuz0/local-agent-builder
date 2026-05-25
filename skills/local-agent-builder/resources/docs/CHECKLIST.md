@@ -13,6 +13,7 @@
 
 ### 2. Sub-Agent Delegation (Strict Validation)
 - [ ] **Location Restraint:** Are ALL of my sub-agents configured purely as `SubAgentConfig` definitions inside `src/app.py`? (Do not try to edit `engine/orchestrator.py` manually).
+- [ ] **Nested Delegation Registry:** Did I register all nested sub-agents in the flat `sub_agents=[...]` list of the `AgentBuilder` in `src/app.py` instead of rewriting the orchestrator to pass configurations manually?
 - [ ] **Dependency Ordering (CRITICAL):** Did I define deeply-nested sub-agents *before* their parent agents sequentially in the file? (e.g., defining `delegate_analyzer` above `delegate_searcher` so it can be passed into `tools=[]` without a `NameError`).
 - [ ] **No Hallucinated State:** Am I statically hardcoding the `name="SubAgent"` in `client.as_agent()`? I MUST NOT invent global list counters (`_get_next_id()`).
 - [ ] **Decorator Safety:** Does every delegation `@tool` have an explicit, strongly-typed `description` to prevent JSON schema generation failures?

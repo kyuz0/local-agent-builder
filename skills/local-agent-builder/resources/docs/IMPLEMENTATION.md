@@ -196,8 +196,9 @@ You **MUST** strictly define agents using the pattern implemented in `examples/b
 > [!WARNING]
 > **CRITICAL SUB-AGENT CODING RULES:**
 > 1. **Location:** You **MUST** define delegation logic through standard `SubAgentConfig(tools=[...])` parameters in `src/app.py`. The engine automatically builds concurrent pipelines.
-> 2. **Recursive Tracking:** Parent agents use `contextvars` to release their concurrency token before `await asyncio.gather(...)` to avoid deadlocks. This is pre-configured in the basic scaffold `engine/orchestrator.py`.
-> 3. **Concurrency:** Always use an `asyncio.Semaphore` tied to `config.cfg["settings"]["concurrency"]["max_concurrent_tasks"]`.
+> 2. **Flat Registry for Nested Delegation:** The orchestration engine already natively supports nested sub-agent delegation out-of-the-box (e.g. Orchestrator -> Search Sub-Agent -> Page Analyzer Sub-Agent). You MUST declare all sub-agents in a flat list in `src/app.py` and pass them to the `AgentBuilder` (e.g. `sub_agents=[searcher_agent, analyzer_agent]`). Do NOT rewrite or modify `src/engine/orchestrator.py` to support nesting; the engine automatically injects the `delegate_tasks` tool to any sub-agent in the list.
+> 3. **Recursive Tracking:** Parent agents use `contextvars` to release their concurrency token before `await asyncio.gather(...)` to avoid deadlocks. This is pre-configured in the basic scaffold `engine/orchestrator.py`.
+> 4. **Concurrency:** Always use an `asyncio.Semaphore` tied to `config.cfg["settings"]["concurrency"]["max_concurrent_tasks"]`.
 
 ### Bounded Concurrency Implementations
 When implementing concurrent scatter-gather operations:
