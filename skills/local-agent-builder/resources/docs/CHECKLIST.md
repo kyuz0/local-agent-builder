@@ -4,7 +4,8 @@
 
 ### 1. Scaffold Integrity & Reuse
 - [ ] **No Rewrites:** Did I firmly reject any impulses to rewrite the architecture from scratch? 
-- [ ] **Light Modifications Only:** Did I copy the basic scaffold, modify as little as possible (since it works like a charm), mostly just add/remove tools and change prompts/configurations, and completely avoid touching the core engine (`src/engine/`)?
+- [ ] **Light Modifications Only:** Did I copy the basic scaffold, modify as little as possible (since it works like a charm), and focus MOST edits strictly on `src/app.py`, `src/prompts.py`, `pyproject.toml`, `README.md`, and config YAML (`src/config_template.yaml`) to configure the required agent and subagent structures, leaving the core engine (`src/engine/`) completely untouched?
+- [ ] **No Tool Rewrites:** Did I avoid rewriting existing tools (like files, web search, or parsing tools)? Did I prioritize reusing them as-is, make only minimal changes based on comments and documentation guidance, and reject writing new tool logic from scratch?
 - [ ] **Prompt Preservation:** Did I retain the explicit `<Hard Limits>` and quota tracking sections inside `prompts.py`?
 - [ ] **Anti-Looping Traps:** Did I inject an strict `<Anti-Looping>` clause into my `ORCHESTRATOR_INSTRUCTIONS` demanding that it NEVER call the exact same tool with identical arguments twice in a row? (Crucial to break `write_todos` infinite loops on small local models!).
 - [ ] **String Interpolation Safety:** Did I avoid using single braces `{}` for un-interpolated placeholder variables inside system prompts passed to `.format()`? (e.g. use `{{run_folder}}` or `<run_folder>` so Python doesn't throw a fatal `KeyError`).

@@ -1,6 +1,12 @@
 # Essential AI Tools Implementation Guide
 **Rule: The `basic-tui-agent` scaffold provides ready-to-use implementations for all standard agentic tasks. You MUST import them from the scaffold instead of re-writing them from scratch.**
 
+> [!IMPORTANT]
+> **STRICT TOOL REUSE DIRECTIVE:**
+> 1. **Assume Existing Tools are Complete:** If a tool already exists in the scaffold (e.g., filesystem tools in `src/tools/fs.py`, web tools in `src/tools/web.py`, or document parsing utilities in `src/utils/parsers.py`), assume it works out-of-the-box and does not require any edits (or at most, minor configuration tweaks). Review the tool's implementation and associated docs first, and prioritize using it without modifications.
+> 2. **Do Not Rewrite Existing Tools:** If you are rewriting an entire tool that already exists, you are likely getting it wrong. Never rewrite tools from scratch.
+> 3. **Minimize Modifications & Check Guidance:** If a modification is absolutely required, check the existing docs, guides, and source code comments for hints or instructions on how to extend it. Do not invent new structures or custom code; follow the existing design patterns. Keep changes to the absolute minimum.
+
 ## 1. Web Search & Raw URL Fetching
 **Rule: Network requests must be isolated into async threads to prevent TUI blocking.**
 
