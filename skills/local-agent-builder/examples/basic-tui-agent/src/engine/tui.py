@@ -717,9 +717,8 @@ class BasicTuiAgent(App):
 
     async def handle_agent_update(self, update, state, chat, is_subagent=False, agent_name=None, is_done=False):
         import time
-        # Calculate dynamic nesting depth based on open, unresolved tool calls in the current state
-        active_tools = sum(1 for w in state.get("calls", {}).values() if not w._done)
-        depth = delegation_depth_ctx.get() + active_tools
+        # Calculate dynamic nesting depth based on active delegation level
+        depth = delegation_depth_ctx.get()
 
         if is_done and is_subagent:
             widget = state.get(f"widget_{agent_name}")

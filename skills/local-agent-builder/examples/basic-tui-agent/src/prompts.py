@@ -5,6 +5,7 @@ import datetime
 # 1. DO NOT rewrite this entire file from scratch.
 # 2. When creating new agents, duplicate the existing instruction patterns below and adapt them.
 # 3. CRITICAL: You must ALWAYS preserve the `<Hard Limits>` and `<Strategy>` blocks inside your prompts to protect context quotas and recursion limits.
+# 4. NEVER pre-format prompts in src/app.py. Pass raw strings; the engine formats runtime placeholders (like {date} or {task_name}) dynamically at runtime.
 # -------------------------------------------------------------
 
 SUBAGENT_DELEGATION_INSTRUCTIONS = """# Sub-Agent Delegation

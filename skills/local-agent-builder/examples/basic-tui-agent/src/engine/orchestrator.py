@@ -75,13 +75,17 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
             try:
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                target_config = builder.sub_agents[0] if builder.sub_agents else None
+                target_config = None
                 if agent_id and builder.sub_agents:
                     for conf in builder.sub_agents:
                         if conf.name == agent_id:
                             target_config = conf
                             break
-                            
+                    if target_config is None:
+                        return f"## Error for {task_name}\nFailed to delegate: Sub-agent named '{agent_id}' does not exist. Available registered sub-agents: {[c.name for c in builder.sub_agents]}.\n---"
+                else:
+                    target_config = builder.sub_agents[0] if builder.sub_agents else None
+                    
                 sub_tools = apply_tool_permissions(target_config.tools.copy() if target_config else [])
                 if builder.sub_agents and delegate_tasks not in sub_tools:
                     sub_tools.append(delegate_tasks)
