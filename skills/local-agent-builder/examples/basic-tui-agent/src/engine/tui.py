@@ -1339,6 +1339,7 @@ def cli_main(builder):
     parser.add_argument("--prompt", "-p", type=str, help="Run non-interactively with a specific prompt (headless mode)", default=None)
     parser.add_argument("--prompt-file", "-f", type=str, help="Run non-interactively reading a JSON context file", default=None)
     parser.add_argument("--web", "-w", action="store_true", help="Serve the TUI as a web application")
+    parser.add_argument("--port", "-P", type=int, default=8000, help="Port for --web mode (default: 8000)")
     parser.add_argument("--auto-approve", action="store_true", help="Automatically approve all tool execution requests")
     parser.add_argument("--list-sessions", action="store_true", help="List saved sessions and exit")
     parser.add_argument("--resume", type=str, help="Resume a specific session by ID. Works in headless mode if --prompt is given, or in TUI mode otherwise.", default=None)
@@ -1390,10 +1391,10 @@ def cli_main(builder):
             
         command_str = shlex.join(child_args)
         
-        sys.stdout.write("Starting Textual Web Server on http://localhost:8000 ...\n")
+        sys.stdout.write(f"Starting Textual Web Server on http://localhost:{args.port} ...\n")
         sys.stdout.write("Press Ctrl+C to stop.\n")
         
-        server = Server(command_str)
+        server = Server(command_str, port=args.port)
         server.serve()
     else:
         BasicTuiAgent(builder, session_to_resume=args.resume).run()
