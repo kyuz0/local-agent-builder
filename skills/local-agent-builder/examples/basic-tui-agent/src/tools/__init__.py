@@ -37,9 +37,20 @@ WORKSPACE_TOOLS = [
 __all__ = [
     "tool_quotas_ctx",
     "with_quota",
+    "WORKSPACE_TOOLS",
+    # Individual tools (import these in app.py for selective per-agent tool assignment)
+    "read_workspace_file",
+    "write_workspace_file",
+    "list_workspace_files",
+    "grep_workspace_file",
+    "remove_workspace_file",
+    "fetch_url_to_workspace",
+    "web_search",
+    "write_todos",
+    "read_todos",
+    "think_tool",
+    "run_shell_command",
+    # TUI helpers (not agent tools)
     "get_workspace_files",
     "get_workspace_file_content",
-    "WORKSPACE_TOOLS",
-    "think_tool",
-    "run_shell_command"
 ]

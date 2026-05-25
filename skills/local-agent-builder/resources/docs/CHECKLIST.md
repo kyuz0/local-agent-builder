@@ -31,6 +31,7 @@
 - [ ] **Schema Omission Trap:** Did I actually inject the specific delegation tool into the sub-agent's `tools=[...]` array? (If the agent thinks about delegating but never calls the tool, it's because I forgot to attach the tool to it).
 - [ ] **Architectural Boundaries:** Did I withhold inappropriate tools from the Orchestrator (e.g. stripping `web_search`) to force proper sub-agent delegation?
 - [ ] **No Parser Tools:** Did I avoid exposing the utility functions inside `utils/parsers.py` (like `convert_to_markdown` or `extract_advanced_pdf`) directly to the agent as tools in `app.py`? (Ensure they are only used programmatically and internally under the hood).
+- [ ] **Individual Tool Imports:** If I assigned different tool sets to different agents (e.g. withholding `web_search` from an Analyzer), did I import each individual tool from `tools` in `src/app.py`? (The scaffold example shows the import pattern: `from tools import read_workspace_file, web_search, ...`). Using a tool name in a `tools=[...]` list without importing it causes a fatal `NameError` at startup.
 
 ### 4. Optional Extensions
 - [ ] **Mailbox Segregation:** If asked to execute via email, did I use the `mailbox-daemon-addon` daemon pattern entirely decoupled from `app.py`?
