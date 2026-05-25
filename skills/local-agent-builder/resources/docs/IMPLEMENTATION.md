@@ -9,7 +9,7 @@ You will find scaffold projects and documentation for how to create agents in th
 > [!NOTE]
 > While this file explains structural implementation and python boilerplate, you **MUST** reference [`PROMPTING.md`](./PROMPTING.md) to understand how to write instructions that guide agent behavior reliably on local hardware.
 
-**Rule: NEVER construct an agent from scratch. You MUST copy the contents of the `examples/basic-tui-agent/` directory to your main project folder for editing to create the agent the user wants.**
+**Rule: NEVER construct an agent from scratch. You MUST copy the contents of the `examples/basic-tui-agent/` directory to your main project folder as your starting point. Modify as little as possible of the scaffold—it works like a charm! Limit your changes to adding/removing tools, updating prompts (in `src/prompts.py`), and adjusting configurations (in `src/app.py` or `src/config_template.yaml`). Do not touch the core engine files (under `src/engine/`) unless absolutely necessary.**
 
 **Rule: PRUNE UNUSED TOOLS. The scaffold contains common reference implementations (like `web_search` and `fetch_url_to_workspace`). If the agent you are building does not need these tools, you MUST explicitly delete them from the workspace to save tokens and prevent hallucinated tool calls.**
 

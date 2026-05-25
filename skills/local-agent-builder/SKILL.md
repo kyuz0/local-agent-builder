@@ -24,7 +24,7 @@ You will find the scaffold project and documentation for how to create agents in
 > Your context window is limited! Do **not** blindly read every `.md` document in the `resources/docs/` folder. Usually, you only need to read `ARCHITECTURE.md` and `IMPLEMENTATION.md` and possibly `TOOLS.md`. Skip documents like `SHELL.md` or `MAILBOX.md` unless the user explicitly requests those specific advanced capabilities.
 
 **MANDATORY STARTING STEPS FOR BUILDING NEW APPLICATIONS:** 
-- **STAGE 1 (Baseline Scaffold):** First, you **MUST** copy the entire contents of the `examples/basic-tui-agent/` directory to the main project working directory as your primary starting point, and read its `README.md`.
+- **STAGE 1 (Baseline Scaffold):** First, you **MUST** copy the entire contents of the `examples/basic-tui-agent/` directory to the current project directory as your primary starting point, and read its `README.md`. Never start from scratch or build a custom directory structure.
     - Always rely on `pyproject.toml` for adding new dependencies. Do **not** create a `requirements.txt` file.
     - Modify the `name` field in the `[project]` block of the copied `pyproject.toml` to reflect the agent you are building (e.g., `name = "local-research-agent"`).
     - Modify the `[project.scripts]` block in the copied `pyproject.toml` to name the system-wide executable command after the agent you are building (e.g. `local-research-agent = "src.app:cli_main"`).
@@ -34,8 +34,10 @@ You will find the scaffold project and documentation for how to create agents in
 > [!CAUTION]
 > **STRICT REUSE DIRECTIVE: DO NOT REWRITE FROM SCRATCH OR INVENT PATTERNS.**
 > You are explicitly forbidden from rewriting the core scaffold architecture. Your task is to perform **LIGHT MODIFICATIONS** to the provided `basic-tui-agent` files. 
-> - **Always reuse** the existing scaffold code, tools (`src/app.py`, `tools/`), UI widgets, and logic wrappers wherever possible.
-> - **The `engine/` Directory is out-of-bounds:** Do NOT edit files inside `src/engine/` unless strictly necessary. It works out-of-the-box and provides the TUI and Textual logic, shielded so you only need to declare configurations in `src/app.py`.
+> - **Always start by copying the basic scaffold to the current project directory.** Do not write new orchestrators or custom setup files from scratch.
+> - **Modify as little as possible of the scaffold—it works like a charm!** The baseline loop, TUI system, and orchestration engine are robust and ready out-of-the-box. Avoid unnecessary refactoring or "improvement" of the existing code.
+> - **Mostly just add or remove tools, and change prompts and configurations.** Limit your changes to modifying/adding tools under `src/tools/`, updating instructions/system prompts in `src/prompts.py`, configuring variables in `src/app.py`, and defining settings in `src/config_template.yaml`.
+> - **Do NOT touch the core:** The `src/engine/` directory is strictly out-of-bounds. It handles all the complex Textual TUI and background thread orchestration. Never modify this folder unless there is a critical bug.
 > - **Never invent or hallucinate architectures.** If a feature is needed, the required pattern is almost certainly already established inside the `resources/docs/` documents or as exemplary code within the scaffold. 
 > - Read the code, mimic its native structural patterns exactly, and only inject the specific business logic the user requested.
 
