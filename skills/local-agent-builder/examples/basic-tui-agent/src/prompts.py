@@ -10,7 +10,8 @@ import datetime
 #
 # AVAILABLE FORMAT VARIABLES (auto-populated by the engine at runtime):
 #   Orchestrator prompts: {date}, {workspace_dir}, {delegation_instructions}, plus all {tool_name_quota} from config.yaml
-#   Sub-agent prompts:    {date}, {task_name}, plus all {tool_name_quota} from config.yaml
+#   Sub-agent prompts:    {date}, {task_name}, {workspace_dir}, {delegation_instructions}, plus all {tool_name_quota} from config.yaml
+#   NOTE: The engine uses a safe formatter — unknown {keys} stay as literal text instead of crashing.
 #
 # QUOTA VARIABLE NAMING: Each key under `settings.quotas` in config_template.yaml becomes
 #   a format variable named {key_quota}. Examples:

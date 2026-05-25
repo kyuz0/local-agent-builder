@@ -31,7 +31,12 @@ def _get_safe_path(filename: str) -> str:
     return filename
 
 def get_workspace_files() -> List[str]:
-    """Helper for TUI to list files agnostic of storage backend."""
+    """Helper for TUI to list files agnostic of storage backend.
+    
+    Returns bare filenames (without session prefix) so agents can pass them
+    directly to read_workspace_file/grep_workspace_file. The session prefix
+    is transparently added by _get_safe_path inside those functions.
+    """
     session_dir = session_dir_ctx.get()
     
     if _get_workspace_type() == "disk":
@@ -39,11 +44,11 @@ def get_workspace_files() -> List[str]:
         if session_dir:
             d = os.path.join(d, session_dir)
         if not os.path.isdir(d): return []
-        return [os.path.join(session_dir, f) if session_dir else f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
+        return [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
         
     if session_dir:
         prefix = session_dir + "/"
-        return [k for k in _IN_MEMORY_FS.keys() if k.startswith(prefix)]
+        return [k[len(prefix):] for k in _IN_MEMORY_FS.keys() if k.startswith(prefix)]
     return list(_IN_MEMORY_FS.keys())
 
 def get_workspace_file_content(filename: str) -> str | None:

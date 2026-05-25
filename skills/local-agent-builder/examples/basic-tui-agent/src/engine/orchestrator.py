@@ -41,6 +41,18 @@ def _get_quota_format_vars() -> dict:
         result[key + "_quota"] = val.get("limit", 0) if isinstance(val, dict) else val
     return result
 
+def _safe_format(template: str, **kwargs) -> str:
+    """Format a template string, leaving unknown {keys} as literal text.
+    
+    Unlike str.format(), this does NOT crash on missing keys. Unknown
+    placeholders stay as-is (e.g. '{custom_var}' remains '{custom_var}').
+    This prevents a single missing key from nuking the entire prompt.
+    """
+    class _SafeDict(dict):
+        def __missing__(self, key):
+            return '{' + key + '}'
+    return template.format_map(_SafeDict(**kwargs))
+
 def _get_default_options():
     options = {"temperature": 0.0}
     # OpenAI's official API rejects "chat_template_kwargs"
@@ -107,18 +119,25 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                     
                 sub_instr = ""
                 if target_config:
-                    try:
-                        sub_instr = target_config.instructions.format(
-                            date=current_date,
-                            task_name=task_name,
-                            **_get_quota_format_vars()
-                        )
-                    except KeyError:
-                        sub_instr = target_config.instructions
-                else:
-                    sub_instr = SUBAGENT_INSTRUCTIONS.format(
+                    sub_instr = _safe_format(
+                        target_config.instructions,
                         date=current_date,
                         task_name=task_name,
+                        workspace_dir=config.cfg.get("settings", {}).get("workspace", {}).get("dir", "."),
+                        delegation_instructions=SUBAGENT_DELEGATION_INSTRUCTIONS.format(
+                            max_concurrency=config.cfg.get("settings", {}).get("concurrency", {}).get("max_concurrent_tasks", 1)
+                        ),
+                        **_get_quota_format_vars()
+                    )
+                else:
+                    sub_instr = _safe_format(
+                        SUBAGENT_INSTRUCTIONS,
+                        date=current_date,
+                        task_name=task_name,
+                        workspace_dir=config.cfg.get("settings", {}).get("workspace", {}).get("dir", "."),
+                        delegation_instructions=SUBAGENT_DELEGATION_INSTRUCTIONS.format(
+                            max_concurrency=config.cfg.get("settings", {}).get("concurrency", {}).get("max_concurrent_tasks", 1)
+                        ),
                         **_get_quota_format_vars()
                     )
 
@@ -216,7 +235,8 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
 
     agent = client.as_agent(
         name=_sanitize_name(builder.name),
-        instructions=builder.instructions.format(
+        instructions=_safe_format(
+            builder.instructions,
             date=current_date,
             workspace_dir=workspace_dir,
             delegation_instructions=SUBAGENT_DELEGATION_INSTRUCTIONS.format(

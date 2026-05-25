@@ -95,10 +95,13 @@ When editing, customizing, or extending system prompts (especially in `src/promp
 | Variable | Available In | Source |
 |---|---|---|
 | `{date}` | Orchestrator + Sub-agents | Current datetime, auto-set |
-| `{workspace_dir}` | Orchestrator only | `settings.workspace.dir` from config |
+| `{workspace_dir}` | Orchestrator + Sub-agents | `settings.workspace.dir` from config |
 | `{task_name}` | Sub-agents only | Passed from parent via `delegate_tasks` |
-| `{delegation_instructions}` | Orchestrator only | Content of `SUBAGENT_DELEGATION_INSTRUCTIONS` |
+| `{delegation_instructions}` | Orchestrator + Sub-agents | Content of `SUBAGENT_DELEGATION_INSTRUCTIONS` |
 | `{tool_name_quota}` | Orchestrator + Sub-agents | Every key under `settings.quotas` in config (see §2) |
+
+> [!TIP]
+> The engine uses a **safe formatter** that leaves unknown `{keys}` as literal text instead of crashing. If you add a custom placeholder like `{my_custom_var}` that isn't in the table above, it simply stays as `{my_custom_var}` in the rendered prompt. It won't crash the application, but the LLM will see it as literal text.
 
 1. **Do NOT Strip Essential Placeholders:** The scaffold templates (like `SUBAGENT_INSTRUCTIONS` and `ORCHESTRATOR_INSTRUCTIONS`) are pre-optimized. They contain Python format keys (like `{date}`, `{task_name}`, `{delegation_instructions}`, `{delegate_tasks_quota}`, `{fetch_url_to_workspace_quota}`) that the orchestration engine *expects* to interpolate via `.format()`. If you delete `{task_name}` from a sub-agent's instructions, the sub-agent will never receive the actual query or task details and will run blindly!
 2. **Explicitly Command Task Breakdown & Propagation:** In the Orchestrator's instructions, you must explicitly direct it to analyze the user's query (e.g., read it from `query.md` or the initial input), break it down into highly specific research angles/tasks, and pass *those specific angles* to the sub-agents via the `delegate_tasks` tool (rather than passing generic or hardcoded instructions).
