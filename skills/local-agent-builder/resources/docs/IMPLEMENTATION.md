@@ -161,13 +161,11 @@ settings:
 3. Inside your tool, use `_get_tool_rule(tool_name, rule_key, default)` to extract specific constraints without needing to parse the config dictionary manually.
 
 ## 5. Universal Document Processing Without Cloud APIs
-**Rule: Always use `markitdown` or `liteparse` to convert downloaded webpages, raw HTML, PDFs, and rich documents into markdown formats before parsing.**
-
-A local agent must process files locally to maintain security perimeters. 
+**Rule: Always use `markitdown` or `liteparse` to convert downloaded webpages, raw HTML, PDFs, and rich documents into markdown formats before parsing. These parsing helper functions (found in `src/utils/parsers.py`) are typically NOT meant as agent tools. Avoid decorating them with `@tool` or passing them directly into the `AgentBuilder` in `src/app.py`. Instead, they are programmatic utilities called internally under the hood by actual agent tools (like `fetch_url_to_workspace`).**
 
 ### Microsoft MarkItDown 
 Microsoft's `markitdown` provides universal parsing for text-native files (HTML, Office, basic PDF).
-**Reference Implementation:** Import and utilize the safe, size-capped `convert_document_to_md` function located entirely within `examples/basic-tui-agent/src/utils/parsers.py`.
+**Reference Implementation:** Import and utilize the safe, size-capped `convert_to_markdown` function located entirely within `examples/basic-tui-agent/src/utils/parsers.py`.
 
 ## Tool Authorization (Human-In-The-Loop)
 

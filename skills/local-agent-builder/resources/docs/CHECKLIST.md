@@ -24,6 +24,7 @@
 - [ ] **Clean Quota Configs (CRITICAL LIMIT CHECK):** Did I safely extract the integer limit from `config_template.yaml` instead of passing a raw `dict` dictionary? (e.g., extracting `.get("limit", 5)`). If you pass a dict into `tool_quotas_ctx.set(...)`, it will trigger a `TypeError` (int >= dict) causing `Error: Function failed.`!
 - [ ] **Schema Omission Trap:** Did I actually inject the specific delegation tool into the sub-agent's `tools=[...]` array? (If the agent thinks about delegating but never calls the tool, it's because I forgot to attach the tool to it).
 - [ ] **Architectural Boundaries:** Did I withhold inappropriate tools from the Orchestrator (e.g. stripping `web_search`) to force proper sub-agent delegation?
+- [ ] **No Parser Tools:** Did I avoid exposing the utility functions inside `utils/parsers.py` (like `convert_to_markdown` or `extract_advanced_pdf`) directly to the agent as tools in `app.py`? (Ensure they are only used programmatically and internally under the hood).
 
 ### 4. Optional Extensions
 - [ ] **Mailbox Segregation:** If asked to execute via email, did I use the `mailbox-daemon-addon` daemon pattern entirely decoupled from `app.py`?

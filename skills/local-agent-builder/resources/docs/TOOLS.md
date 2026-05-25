@@ -35,6 +35,10 @@ You do not need to implement filesystem tools manually. The scaffold includes fu
 ## 3. Non-Text Document Processing
 **Rule: Always use `markitdown` or `liteparse` to handle complex PDFs, Images, and rich formats (`.docx`).**
 
+> [!CAUTION]
+> **PARSERS ARE UTILITIES, NOT AGENT TOOLS:**
+> The parsing helper functions inside `src/utils/parsers.py` (e.g., `convert_to_markdown` or `extract_advanced_pdf`) are **not** agent tools. They must never be decorated with `@tool` or passed to the `AgentBuilder` in `src/app.py`. Instead, all conversion must happen programmatically under the hood. For example, `fetch_url_to_workspace` already imports and calls `convert_to_markdown` automatically inside its python logic. Keep them as internal implementation details.
+
 Do not manually parse binary files with PyPDF2 or Tesseract. Use the centralized parsing implementations found inside `examples/basic-tui-agent/src/utils/parsers.py`:
 - **For Standard Documents:** The scaffold incorporates Microsoft's `markitdown` for structural conversion of files.
 - **For Heavy OCR / Scanned Layouts:** The scaffold leverages `@llamaindex/liteparse` via a local NPX subprocess hook. Always deploy this path when visual parsing is strictly demanded.
