@@ -871,13 +871,13 @@ class BasicTuiAgent(App):
     async def run_agent(self, query: str):
         self._is_agent_running = True
         
-        # [OPTIONAL SESSION DIRECTORY PATTERN]
-        # Uncomment below to cleanly isolate and map ALL workspace file operations 
-        # for this run to a subfolder (e.g. `run_timestamp/`). This ensures sub-agents
-        # share the same flat paths without confusion.
-        # import time
-        # from tools.fs import session_dir_ctx
-        # session_token = session_dir_ctx.set(f"run_{int(time.time())}")
+        # Session directory isolation: when enabled, ALL workspace file operations
+        # for this run are transparently mapped to a timestamped subfolder (e.g. run_1748192400/).
+        # Toggle via config.yaml: settings.workspace.session_isolation: true
+        if config.cfg.get("settings", {}).get("workspace", {}).get("session_isolation", False):
+            import time
+            from tools.fs import session_dir_ctx
+            session_token = session_dir_ctx.set(f"run_{int(time.time())}")
         
         # Initialize tool quotas from config
         config_quotas = config.cfg.get("settings", {}).get("quotas", {})

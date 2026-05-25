@@ -9,7 +9,7 @@ You will find scaffold projects and documentation for how to create agents in th
 > [!NOTE]
 > While this file explains structural implementation and python boilerplate, you **MUST** reference [`PROMPTING.md`](./PROMPTING.md) to understand how to write instructions that guide agent behavior reliably on local hardware.
 
-**Rule: NEVER construct an agent from scratch. You MUST copy the contents of the `examples/basic-tui-agent/` directory to your main project folder as your starting point. Modify as little as possible of the scaffold—it works like a charm! Focus your changes strictly on translating the required agent structure and instructions into `src/app.py` and `src/prompts.py`, and updating the related `pyproject.toml`, `README.md`, and config YAML (`src/config_template.yaml`). Most of your edits should be in `src/prompts.py` and `src/app.py`. Do not touch the core engine files (under `src/engine/`) unless absolutely necessary.**
+**Rule: NEVER construct an agent from scratch. You MUST copy the contents of the `examples/basic-tui-agent/` directory to your main project folder as your starting point. Modify as little as possible of the scaffold—it works like a charm! Focus your changes strictly on translating the required agent structure and instructions into `src/app.py` and `src/prompts.py`, and updating the related `pyproject.toml`, `README.md`, and config YAML (`src/config_template.yaml`). Most of your edits should be in `src/prompts.py` and `src/app.py`. Avoid editing the core engine files (under `src/engine/`) — in 99% of cases there is a config toggle, format variable, or SDK parameter that achieves what you need without touching engine code. Only make minimal, targeted engine edits when there is genuinely no alternative.**
 
 **Rule: DO NOT REWRITE EXISTING TOOLS. If a tool already exists in the scaffold (e.g., file interaction tools, web search, document parsers), assume it does not require any editing or only requires minor edits. Review the implementation and docs to see if you can use it without modification, and prioritize doing so. If you need to modify it, check existing documentation and source code comments for hints/guidance, keeping changes to the absolute minimum. Rewriting an existing tool from scratch is strictly prohibited and likely incorrect.**
 
@@ -63,10 +63,11 @@ Set this explicitly in `config.yaml`:
 ```yaml
 settings:
   workspace:
-    type: memory # or "disk"
-    dir: .       # Only applies if type is disk
+    type: memory            # or "disk"
+    dir: .                  # Only applies if type is disk
+    session_isolation: true # Auto-creates timestamped run folders (e.g. run_1748192400/)
 ```
-Note: Tools like `/files` TUI picker and agent `write_workspace_file` natively support this toggle out-of-the-box.
+Note: Tools like `/files` TUI picker and agent `write_workspace_file` natively support this toggle out-of-the-box. When `session_isolation` is enabled, all file operations are transparently routed to a per-run subfolder — agents are unaware of the folder and just read/write files normally.
 
 ### Local Configuration and Secrets Isolation
 Secrets belong inside `.env` via `python-dotenv`, while runtime states (`enable_thinking`, workspace config) belong in `config.yaml`. 
@@ -139,12 +140,20 @@ def think_tool(reflection: str) -> str:
 
 ## 4. Tool Quota Management Recipe
 **Rule: Always implement Tool invocation quotas to stop infinite tool-calling loops!**
-1. Configure limits centrally in `config.yaml` (or the scaffold template). The schema dynamically supports BOTH flat integers (for simple limits) and dictionaries (for limits + rules).
+1. Configure limits centrally in `config_template.yaml`. The schema dynamically supports BOTH flat integers (for simple limits) and dictionaries (for limits + rules).
+
+> [!IMPORTANT]
+> **Quotas are GLOBAL** — shared across ALL agents (orchestrator + all sub-agents) in the system. Do NOT try to define separate quotas per agent. Each key under `settings.quotas` MUST appear exactly once. YAML silently drops duplicate keys (only the last value survives), so creating separate "Orchestrator quotas" and "Sub-Agent quotas" sections with the same key names will silently clobber each other.
+
 ```yaml
 settings:
   quotas:
+    # Each key here becomes a {key_quota} prompt format variable automatically.
+    # e.g. "delegate_tasks: 5" -> {delegate_tasks_quota} = 5 in your prompts.
+    delegate_tasks: 3
     fetch_url_to_workspace: 5    # Flat integer limit
-    read_workspace_file:         # Dictionary configuration
+    web_search: 10               # -> {web_search_quota} = 10
+    read_workspace_file:         # Dictionary config -> {read_workspace_file_quota} = 100
       limit: 100
       rules:
         max_lines: 300
@@ -153,6 +162,9 @@ settings:
       rules:
         max_matches: 10
 ```
+
+> [!TIP]
+> **Auto-populated prompt variables:** The engine automatically extracts all quota keys from config and injects them as `{key_quota}` format variables into both orchestrator and sub-agent prompts at runtime. You do NOT need to modify `engine/orchestrator.py` to add new quota variables. Simply add the key in `config_template.yaml` and reference `{key_quota}` in your prompt string.
 
 > [!WARNING]
 > Because quotas can be EITHER integers or dictionaries, **DO NOT** use chained deep `.get()` calls like `quotas.get("tool", {}).get("limit", 10)`. You will trigger an `AttributeError: 'int' object has no attribute 'get'` when the value is a flat integer. If you must read limits manually, check `isinstance(val, int)`.
@@ -194,7 +206,7 @@ You **MUST** strictly define agents using the pattern implemented in `examples/b
 > [!WARNING]
 > **CRITICAL SUB-AGENT CODING RULES:**
 > 1. **Location:** You **MUST** define delegation logic through standard `SubAgentConfig(tools=[...])` parameters in `src/app.py`. The engine automatically builds concurrent pipelines.
-> 2. **Flat Registry for Nested Delegation:** The orchestration engine already natively supports nested sub-agent delegation out-of-the-box (e.g. Orchestrator -> Search Sub-Agent -> Page Analyzer Sub-Agent). You MUST declare all sub-agents in a flat list in `src/app.py` and pass them to the `AgentBuilder` (e.g. `sub_agents=[searcher_agent, analyzer_agent]`). Do NOT rewrite or modify `src/engine/orchestrator.py` to support nesting; the engine automatically injects the `delegate_tasks` tool to any sub-agent in the list.
+> 2. **Flat Registry for Nested Delegation:** The orchestration engine already natively supports nested sub-agent delegation out-of-the-box (e.g. Orchestrator -> Search Sub-Agent -> Page Analyzer Sub-Agent). You MUST declare all sub-agents in a flat list in `src/app.py` and pass them to the `AgentBuilder` (e.g. `sub_agents=[searcher_agent, analyzer_agent]`). The engine automatically injects the `delegate_tasks` tool to any sub-agent in the list — do NOT modify `src/engine/orchestrator.py` to add delegation support.
 > 3. **Recursive Tracking:** Parent agents use `contextvars` to release their concurrency token before `await asyncio.gather(...)` to avoid deadlocks. This is pre-configured in the basic scaffold `engine/orchestrator.py`.
 > 4. **Concurrency:** Always use an `asyncio.Semaphore` tied to `config.cfg["settings"]["concurrency"]["max_concurrent_tasks"]`.
 

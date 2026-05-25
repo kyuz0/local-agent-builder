@@ -30,7 +30,7 @@ _DEFAULTS = {
         "quotas": {},
         "workspace": {
             "type": "memory",
-            "dir": "."
+            "dir": "~/.{APP_NAME}/workspace"
         }
     }
 }
@@ -67,6 +67,13 @@ def load_config() -> dict:
             file_cfg = yaml.safe_load(f) or {}
             
     cfg = _deep_merge(_DEFAULTS, file_cfg)
+
+    # Expand APP_NAME placeholder and tilde (~) in workspace directory
+    if "settings" in cfg and "workspace" in cfg["settings"]:
+        ws = cfg["settings"]["workspace"]
+        if "dir" in ws and isinstance(ws["dir"], str):
+            dir_str = ws["dir"].replace("{APP_NAME}", APP_NAME)
+            ws["dir"] = os.path.abspath(os.path.expanduser(dir_str))
 
     # Overlay API keys from environment if set (env takes priority for secrets)
     if os.environ.get("OPENAI_API_BASE"):

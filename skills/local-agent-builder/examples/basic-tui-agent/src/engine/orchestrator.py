@@ -28,6 +28,19 @@ def _sanitize_name(name: str) -> str:
     """Ensure the name matches ^[a-zA-Z0-9_-]+$ for OpenAI API."""
     return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
 
+def _get_quota_format_vars() -> dict:
+    """Extract all quotas from config as {tool_name_quota: int} format variables.
+    
+    Each key in settings.quotas (e.g. 'web_search') becomes a prompt variable
+    named '{web_search_quota}' with its integer limit value. Both flat integers
+    and dict-with-limit configs are handled transparently.
+    """
+    quotas = config.cfg.get("settings", {}).get("quotas", {})
+    result = {}
+    for key, val in quotas.items():
+        result[key + "_quota"] = val.get("limit", 0) if isinstance(val, dict) else val
+    return result
+
 def _get_default_options():
     options = {"temperature": 0.0}
     # OpenAI's official API rejects "chat_template_kwargs"
@@ -95,11 +108,19 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                 sub_instr = ""
                 if target_config:
                     try:
-                        sub_instr = target_config.instructions.format(date=current_date, task_name=task_name)
+                        sub_instr = target_config.instructions.format(
+                            date=current_date,
+                            task_name=task_name,
+                            **_get_quota_format_vars()
+                        )
                     except KeyError:
                         sub_instr = target_config.instructions
                 else:
-                    sub_instr = SUBAGENT_INSTRUCTIONS.format(date=current_date, task_name=task_name)
+                    sub_instr = SUBAGENT_INSTRUCTIONS.format(
+                        date=current_date,
+                        task_name=task_name,
+                        **_get_quota_format_vars()
+                    )
 
                 sub_agent = client.as_agent(
                     name=_sanitize_name(f"SubAgent_{task_name}"),
@@ -191,20 +212,17 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
     if builder.sub_agents:
         tools_list.append(delegate_tasks)
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Define orchestrator strict quotas
-    q_orch_delegate = 3
-    q_orch_fetch = 10
+    workspace_dir = config.cfg.get("settings", {}).get("workspace", {}).get("dir", ".")
 
     agent = client.as_agent(
         name=_sanitize_name(builder.name),
         instructions=builder.instructions.format(
             date=current_date,
+            workspace_dir=workspace_dir,
             delegation_instructions=SUBAGENT_DELEGATION_INSTRUCTIONS.format(
                 max_concurrency=config.cfg.get("settings", {}).get("concurrency", {}).get("max_concurrent_tasks", 1)
             ),
-            delegate_quota=q_orch_delegate,
-            fetch_quota=q_orch_fetch
+            **_get_quota_format_vars()
         ),
         tools=tools_list,
         default_options=_get_default_options()

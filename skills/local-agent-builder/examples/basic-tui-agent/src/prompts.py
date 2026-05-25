@@ -5,7 +5,22 @@ import datetime
 # 1. DO NOT rewrite this entire file from scratch.
 # 2. When creating new agents, duplicate the existing instruction patterns below and adapt them.
 # 3. CRITICAL: You must ALWAYS preserve the `<Hard Limits>` and `<Strategy>` blocks inside your prompts to protect context quotas and recursion limits.
-# 4. NEVER pre-format prompts in src/app.py. Pass raw strings; the engine formats runtime placeholders (like {date} or {task_name}) dynamically at runtime.
+# 4. NEVER pre-format prompts in src/app.py. Pass raw strings; the engine formats runtime placeholders dynamically at runtime.
+# 5. Use double-braces {{}} or angle brackets <> for any literal placeholders that should NOT be interpolated by Python's .format().
+#
+# AVAILABLE FORMAT VARIABLES (auto-populated by the engine at runtime):
+#   Orchestrator prompts: {date}, {workspace_dir}, {delegation_instructions}, plus all {tool_name_quota} from config.yaml
+#   Sub-agent prompts:    {date}, {task_name}, plus all {tool_name_quota} from config.yaml
+#
+# QUOTA VARIABLE NAMING: Each key under `settings.quotas` in config_template.yaml becomes
+#   a format variable named {key_quota}. Examples:
+#     config key "web_search"              -> {web_search_quota}
+#     config key "fetch_url_to_workspace"  -> {fetch_url_to_workspace_quota}
+#     config key "delegate_tasks"          -> {delegate_tasks_quota}
+#     config key "read_workspace_file"     -> {read_workspace_file_quota}
+#     config key "grep_workspace_file"     -> {grep_workspace_file_quota}
+#   You do NOT need to modify engine/orchestrator.py to add new quota variables.
+#   Simply add the quota key in config_template.yaml and reference {key_quota} in your prompt.
 # -------------------------------------------------------------
 
 SUBAGENT_DELEGATION_INSTRUCTIONS = """# Sub-Agent Delegation
@@ -21,7 +36,7 @@ Your context window is limited. While you retain access to standard tools like f
 
 ORCHESTRATOR_INSTRUCTIONS = """You are the main Orchestrator Agent. 
 Current System Time: {date}
-Workspace Location: Virtual / In-Memory (files are ephemeral and destroyed upon exit)
+Workspace Location: {workspace_dir}
 
 <Task>
 Your role is to construct a plan, manage your high-level tasks via `write_todos` / `read_todos`, fetch external information, and delegate complex deep-dive tasks to your sub-agents in parallel when applicable.
@@ -40,8 +55,8 @@ Your role is to construct a plan, manage your high-level tasks via `write_todos`
 
 <Hard Limits>
 **Tool Call Budgets** (You have strict quotas for your execution loop):
-- **delegate_tasks**: {delegate_quota} maximum calls
-- **fetch_url_to_workspace**: {fetch_quota} maximum calls
+- **delegate_tasks**: {delegate_tasks_quota} maximum calls
+- **fetch_url_to_workspace**: {fetch_url_to_workspace_quota} maximum calls
 
 **Quota Exhaustion**:
 If a tool returns an error stating you have reached your quota, you MUST IMMEDIATELY STOP using it. Summarize your findings, state you stopped due to quotas, and reply to the user.

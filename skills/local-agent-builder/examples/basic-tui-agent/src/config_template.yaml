@@ -6,6 +6,12 @@ settings:
   concurrency:
     max_concurrent_tasks: 2
   quotas:
+    # IMPORTANT: Quotas are GLOBAL (shared across ALL agents in the system).
+    # Each key MUST be unique — duplicate YAML keys silently overwrite earlier ones!
+    # The engine auto-injects these as prompt format variables: {key_quota}
+    # e.g. "web_search: 10" becomes {web_search_quota} = 10 in your prompts.
+    # Both flat integers and dict-with-limit are supported.
+    delegate_tasks: 3
     fetch_url_to_workspace: 5
     write_workspace_file: 20
     read_workspace_file:
@@ -20,7 +26,8 @@ settings:
   enable_session_persistence: true
   workspace:
     type: memory
-    dir: .
+    dir: "~/.{APP_NAME}/workspace"
+    session_isolation: false  # Set to true to auto-create timestamped run folders (e.g. run_1748192400/)
   permissions:
     run_shell_command: require_approval
     remove_workspace_file: require_approval

@@ -11,16 +11,33 @@ Never build a monolithic "god prompt". Split instructions by domain:
 - **`SUBAGENT_DELEGATION_INSTRUCTIONS`**: A highly strategic subset of instructions injected into the Orchestrator explaining *when* and *how* to use its `delegate_task` tool. Tell the orchestrator exactly what to pass into the sub-agent and how to parallelize requests.
 
 ## 2. Dynamic Quota Injection
-Agent tool schemas define what a tool *does*, but prompts define *when to stop using it*. Always use Python's `.format()` to inject active quotas directly into the prompt on initialization:
+Agent tool schemas define what a tool *does*, but prompts define *when to stop using it*. The engine **auto-populates** quota format variables from `config_template.yaml` into all prompt templates at runtime. You do NOT need to modify `src/engine/orchestrator.py` to add quota variables.
 
-```python
-# BAD: Hardcoded limits
-"You can search the web 5 times."
-
-# GOOD: Injected dynamically
-SUBAGENT_INSTRUCTIONS = "... \nYou have {search_quota} searches maximum. \n..."
-client.as_agent(instructions=SUBAGENT_INSTRUCTIONS.format(search_quota=5), ...)
+**Naming Convention:** Each key under `settings.quotas` in your config YAML becomes a prompt format variable named `{key_quota}`:
+```yaml
+# config_template.yaml
+settings:
+  quotas:
+    web_search: 10               # -> {web_search_quota} = 10
+    delegate_tasks: 5            # -> {delegate_tasks_quota} = 5
+    fetch_url_to_workspace: 5    # -> {fetch_url_to_workspace_quota} = 5
+    read_workspace_file:         # -> {read_workspace_file_quota} = 50
+      limit: 50
+      rules:
+        max_lines: 300
 ```
+
+To use in prompts, simply reference the variable:
+```python
+# In prompts.py
+SUBAGENT_INSTRUCTIONS = "... \nYou have {web_search_quota} searches maximum. \n..."
+# The engine calls .format(**_get_quota_format_vars()) automatically — no manual formatting needed!
+```
+
+> [!WARNING]
+> **Quotas are GLOBAL** — shared across ALL agents in the system, not per-agent.
+> Each key under `settings.quotas` MUST appear exactly once.
+> YAML silently drops duplicate keys (only the last value survives), so do NOT create separate per-agent quota sections with duplicate key names.
 
 If an agent has `N` active quotas in its execution loop, all `N` must be visibly documented in its instructions so it can strategize its remaining bandwidth.
 
@@ -71,8 +88,20 @@ When using formatting variables in prompt strings, you must follow these strict 
 2. **Double-Braces for Non-Runtime Placeholders:** When writing custom instructions that contain literal braces (e.g., explaining JSON schemas, XML blocks, or writing placeholders like `{{run_folder}}` that the LLM should read), you **MUST** use double-braces `{{placeholder}}` or angle brackets `<placeholder>` so Python's `.format()` method ignores them at runtime. Any single-brace `{placeholder}` that is not explicitly supplied by the engine's `.format()` calls in `src/engine/orchestrator.py` will cause a fatal `KeyError` crash.
 
 ## 7. Placeholder Variable Preservation & Task Context Propagation (CRITICAL)
-When editing, customizing, or extending system prompts (especially in `src/prompts.py`), you must ensure that all required format placeholder keys are retained and that task context is correctly passed down to child agents:
-1. **Do NOT Strip Essential Placeholders:** The scaffold templates (like `SUBAGENT_INSTRUCTIONS` and `ORCHESTRATOR_INSTRUCTIONS`) are pre-optimized. They contain Python format keys (like `{date}`, `{task_name}`, `{delegation_instructions}`, `{delegate_quota}`, `{fetch_quota}`) that the orchestration engine *expects* to interpolate via `.format()`. If you delete `{task_name}` from a sub-agent's instructions, the sub-agent will never receive the actual query or task details and will run blindly!
+When editing, customizing, or extending system prompts (especially in `src/prompts.py`), you must ensure that all required format placeholder keys are retained and that task context is correctly passed down to child agents.
+
+**Available Format Variables (auto-populated by the engine — do NOT modify `engine/orchestrator.py` to add more):**
+
+| Variable | Available In | Source |
+|---|---|---|
+| `{date}` | Orchestrator + Sub-agents | Current datetime, auto-set |
+| `{workspace_dir}` | Orchestrator only | `settings.workspace.dir` from config |
+| `{task_name}` | Sub-agents only | Passed from parent via `delegate_tasks` |
+| `{delegation_instructions}` | Orchestrator only | Content of `SUBAGENT_DELEGATION_INSTRUCTIONS` |
+| `{tool_name_quota}` | Orchestrator + Sub-agents | Every key under `settings.quotas` in config (see §2) |
+
+1. **Do NOT Strip Essential Placeholders:** The scaffold templates (like `SUBAGENT_INSTRUCTIONS` and `ORCHESTRATOR_INSTRUCTIONS`) are pre-optimized. They contain Python format keys (like `{date}`, `{task_name}`, `{delegation_instructions}`, `{delegate_tasks_quota}`, `{fetch_url_to_workspace_quota}`) that the orchestration engine *expects* to interpolate via `.format()`. If you delete `{task_name}` from a sub-agent's instructions, the sub-agent will never receive the actual query or task details and will run blindly!
 2. **Explicitly Command Task Breakdown & Propagation:** In the Orchestrator's instructions, you must explicitly direct it to analyze the user's query (e.g., read it from `query.md` or the initial input), break it down into highly specific research angles/tasks, and pass *those specific angles* to the sub-agents via the `delegate_tasks` tool (rather than passing generic or hardcoded instructions).
 3. **Verify String Format Alignment:** Before completing execution, cross-reference `src/prompts.py` against `src/app.py` and `src/engine/orchestrator.py` to verify that every format key used by the code exists in your prompt strings, and that all variable context is propagated correctly.
 4. **Align Sub-Agent Config Names and Prompt Instructions:** Ensure that the `name` parameter in `SubAgentConfig` definitions inside `src/app.py` matches exactly with the `agent_id` expected by the prompt instructions and passed to the `delegate_tasks` tool. For example, if you register the analyzer sub-agent as `name="Analyzer"`, you must instruct the parent agent to pass `"agent_id": "Analyzer"` when delegating to it. Do not use mismatching names like configuring `"Analyzer"` but prompting the agent to pass `"agent_id": "page_analyzer"`, as this will trigger execution failures.
+5. **Use Auto-Populated Quota Variables:** Reference quota limits using the `{tool_name_quota}` convention (e.g. `{web_search_quota}`, `{delegate_tasks_quota}`) documented in §2. Do NOT invent custom format keys that require modifying `engine/orchestrator.py`.
