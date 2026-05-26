@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", message=".*is experimental and may change.*")
+
 from engine.sdk import AgentBuilder, SubAgentConfig
 from tools import (
     WORKSPACE_TOOLS,
