@@ -108,3 +108,56 @@ When editing, customizing, or extending system prompts (especially in `src/promp
 3. **Verify String Format Alignment:** Before completing execution, cross-reference `src/prompts.py` against `src/app.py` and `src/engine/orchestrator.py` to verify that every format key used by the code exists in your prompt strings, and that all variable context is propagated correctly.
 4. **Align Sub-Agent Config Names and Prompt Instructions:** Ensure that the `name` parameter in `SubAgentConfig` definitions inside `src/app.py` matches exactly with the `agent_id` expected by the prompt instructions and passed to the `delegate_tasks` tool. For example, if you register the analyzer sub-agent as `name="Analyzer"`, you must instruct the parent agent to pass `"agent_id": "Analyzer"` when delegating to it. Do not use mismatching names like configuring `"Analyzer"` but prompting the agent to pass `"agent_id": "page_analyzer"`, as this will trigger execution failures.
 5. **Use Auto-Populated Quota Variables:** Reference quota limits using the `{tool_name_quota}` convention (e.g. `{web_search_quota}`, `{delegate_tasks_quota}`) documented in §2. Do NOT invent custom format keys that require modifying `engine/orchestrator.py`.
+
+## 8. Agent-ID Routing in Delegation Prompts (Multi-Agent Systems)
+In multi-agent systems with more than one sub-agent type (e.g., Searcher + Analyzer), the LLM does **not** inherently know which sub-agent to target when calling `delegate_tasks`. The `agent_id` parameter routes delegation to the correct sub-agent by matching the `name` field in `SubAgentConfig`. If `agent_id` is omitted, the engine silently defaults to `sub_agents[0]`, which is almost certainly the wrong agent.
+
+**You MUST explicitly teach the LLM the available agent names and when to use each one in the system prompt.** Include a concrete call example directly in the prompt:
+
+```markdown
+<Delegation Routing>
+When delegating research tasks, you MUST always specify the target agent.
+Available sub-agents: "Searcher" (for web research), "Analyzer" (for document reading).
+
+Example:
+delegate_tasks(tasks=[
+  {"task_name": "Research topic X", "instructions": "Search for ...", "agent_id": "Searcher"},
+  {"task_name": "Research topic Y", "instructions": "Search for ...", "agent_id": "Searcher"}
+])
+</Delegation Routing>
+```
+
+> [!WARNING]
+> **Common Mistake:** The coding agent writes prose like "dispatch Search Sub-Agents" in the prompt but never tells the LLM the exact `agent_id` string. The LLM has no way to know the name is `"Searcher"` unless you spell it out. Always include a concrete JSON example showing the exact `agent_id` value.
+
+## 9. Data-Flow Integrity in Nested Pipelines
+When Agent A produces output that Agent B depends on (e.g., a filename), Agent A's prompt **MUST** instruct it to capture that output and embed it into the delegation `instructions` for Agent B. Without this, Agent B is dispatched without knowing what to operate on.
+
+**The Critical Pattern: Fetch → Capture Filename → Delegate with Filename**
+
+In a Searcher→Analyzer pipeline:
+1. The Searcher calls `fetch_url_to_workspace(url, filename)` which returns a confirmation like `"Fetched URL successfully to 'microsoft_ai_research_143022.md'"`.
+2. The Searcher's prompt **MUST** instruct it to capture the filename from this response.
+3. The Searcher **MUST** pass the exact filename in the delegation instructions to the Analyzer.
+
+**Prompt pattern to include in the Searcher's instructions:**
+
+```markdown
+<Data Flow Rule>
+After fetching a URL, the tool returns a message containing the saved filename.
+You MUST capture this filename and pass it to the Analyzer in your delegation instructions.
+
+Example:
+1. You call: fetch_url_to_workspace(url="https://example.com/article", filename="example_article_143022")
+2. Tool returns: "Fetched URL successfully to 'example_article_143022.md'"
+3. You delegate: delegate_tasks(tasks=[
+     {"task_name": "Analyze example_article_143022.md",
+      "instructions": "Read the file 'example_article_143022.md' and extract key findings about ...",
+      "agent_id": "Analyzer"}
+   ])
+</Data Flow Rule>
+```
+
+> [!CAUTION]
+> **Anti-Pattern: Tool Leaking.** If a parent agent (e.g., Searcher) is given the tools that its child agent (e.g., Analyzer) is supposed to use (like `read_workspace_file`), the LLM will skip delegation entirely and read files itself. This defeats the architecture by bloating the parent's context window. **Always withhold child-specific tools from the parent** to force proper delegation.
+

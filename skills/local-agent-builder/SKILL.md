@@ -15,7 +15,9 @@ Familiarize yourself with and deploy the exact recipes documented below.
 
 You will find the scaffold project and documentation for how to create agents in the `examples` and `resources` subfolders of this skill. **DO NOT edit or touch the files inside these folders.** These are strictly read-only references for you.
 
-> **MANDATORY CHECKLIST:** Before presenting any `implementation_plan.md` or completing your final code generation, you MUST explicitly evaluate your work against **[CHECKLIST.md](resources/docs/CHECKLIST.md)**. Use it as a literal verification mechanism to ensure you have not violated dependency ordering or scaffold integrity.
+> **MANDATORY CHECKLIST:** Before presenting any `implementation_plan.md` or completing your final code generation, you MUST explicitly evaluate your work against **[CHECKLIST.md](resources/docs/CHECKLIST.md)** — **TWICE**:
+> 1. **First pass** (after writing `implementation_plan.md`): Verify structural correctness — scaffold integrity (§1), sub-agent delegation (§2), tool quotas (§3), and optional extensions (§4).
+> 2. **Second pass** (after writing final code): Verify data-flow integrity — agent-ID routing in prompts, filename propagation between parent/child agents, and tool consistency with the delegation model (§5: Multi-Tier Data Flow Validation).
 
 > **CRITICAL PATH RESOLUTION FOR AI AGENTS:** Since this skill may be loaded from a global skills directory (e.g., `~/opencode/skills/`) or local skills directory (e.g., `.opencode/skills/`), all file paths mentioned below (like `resources/...` and `examples/...`) are relative to the folder containing this `SKILL.md` file. You **MUST** resolve these to their absolute paths using `SKILL.md`'s location before using your tools to list, read, or copy them. Do not assume they are in the current working directory.
 
