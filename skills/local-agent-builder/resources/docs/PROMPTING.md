@@ -121,11 +121,14 @@ Available sub-agents: "Searcher" (for web research), "Analyzer" (for document re
 
 Example:
 delegate_tasks(tasks=[
-  {"task_name": "Research topic X", "instructions": "Search for ...", "agent_id": "Searcher"},
-  {"task_name": "Research topic Y", "instructions": "Search for ...", "agent_id": "Searcher"}
+  {{"task_name": "Research topic X", "instructions": "Search for ...", "agent_id": "Searcher"}},
+  {{"task_name": "Research topic Y", "instructions": "Search for ...", "agent_id": "Searcher"}}
 ])
 </Delegation Routing>
 ```
+
+> [!CAUTION]
+> **Double-Brace Trap:** The examples above use double-braces `{{` and `}}` because they will be embedded inside Python prompt strings processed by `.format()`. Single braces `{` are reserved for engine variables like `{date}` and `{task_name}`. If you use single braces for JSON, Python throws `ValueError: Invalid format specifier`. See §6 for details.
 
 > [!WARNING]
 > **Common Mistake:** The coding agent writes prose like "dispatch Search Sub-Agents" in the prompt but never tells the LLM the exact `agent_id` string. The LLM has no way to know the name is `"Searcher"` unless you spell it out. Always include a concrete JSON example showing the exact `agent_id` value.
@@ -151,12 +154,15 @@ Example:
 1. You call: fetch_url_to_workspace(url="https://example.com/article", filename="example_article_143022")
 2. Tool returns: "Fetched URL successfully to 'example_article_143022.md'"
 3. You delegate: delegate_tasks(tasks=[
-     {"task_name": "Analyze example_article_143022.md",
+     {{"task_name": "Analyze example_article_143022.md",
       "instructions": "Read the file 'example_article_143022.md' and extract key findings about ...",
-      "agent_id": "Analyzer"}
+      "agent_id": "Analyzer"}}
    ])
 </Data Flow Rule>
 ```
+
+> [!CAUTION]
+> **Double-Brace Trap:** All JSON curly braces in the above example use `{{` and `}}` because they are embedded in Python prompt strings processed by `.format()`. Using single braces `{` causes `ValueError: Invalid format specifier` at runtime. See §6.
 
 > [!CAUTION]
 > **Anti-Pattern: Tool Leaking.** If a parent agent (e.g., Searcher) is given the tools that its child agent (e.g., Analyzer) is supposed to use (like `read_workspace_file`), the LLM will skip delegation entirely and read files itself. This defeats the architecture by bloating the parent's context window. **Always withhold child-specific tools from the parent** to force proper delegation.

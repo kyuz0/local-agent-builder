@@ -21,10 +21,11 @@ Agent Architecture
      ```
      When delegating research tasks, you MUST always specify the agent:
      delegate_tasks(tasks=[
-       {"task_name": "Research topic X", "instructions": "Search for ...", "agent_id": "Searcher"},
-       {"task_name": "Research topic Y", "instructions": "Search for ...", "agent_id": "Searcher"}
+       {{"task_name": "Research topic X", "instructions": "Search for ...", "agent_id": "Searcher"}},
+       {{"task_name": "Research topic Y", "instructions": "Search for ...", "agent_id": "Searcher"}}
      ])
      ```
+     IMPORTANT: Note the double-braces `{{` and `}}` above. Since these examples are embedded inside Python prompt strings that go through `.format()`, you MUST double-brace all JSON curly braces to prevent `ValueError: Invalid format specifier` crashes. Single braces `{` are reserved for engine variables like `{date}` and `{task_name}`.
 
 2. Search Sub-Agent:
    - Scope: Acts as the web crawler to find relevant pages and download them for deeper analysis.
@@ -38,9 +39,10 @@ Agent Architecture
      ```
      After fetching pages, delegate analysis. You MUST pass the exact filename and agent:
      delegate_tasks(tasks=[
-       {"task_name": "Analyze microsoft_ai_research_143022.md", "instructions": "Read the file 'microsoft_ai_research_143022.md' and extract key findings about ...", "agent_id": "Analyzer"}
+       {{"task_name": "Analyze microsoft_ai_research_143022.md", "instructions": "Read the file 'microsoft_ai_research_143022.md' and extract key findings about ...", "agent_id": "Analyzer"}}
      ])
      ```
+     IMPORTANT: Use double-braces `{{` and `}}` for all JSON curly braces in prompt strings. Single braces are reserved for engine format variables.
    - Tooling Guidelines: ONLY give this agent web capabilities and a tool to dispatch analyzers (e.g., `web_search`, `fetch_url_to_workspace`). It MUST NOT have `read_workspace_file` or `grep_workspace_file` — withholding these tools forces delegation to the Analyzer. If the Searcher can read files itself, it will skip delegation and bloat its own context window, defeating the entire architecture.
 
 3. Page Analyzer Sub-Agent:
