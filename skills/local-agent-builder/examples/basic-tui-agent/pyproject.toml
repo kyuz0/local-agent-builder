@@ -19,7 +19,9 @@ dependencies = [
     "pyfiglet",
     "ddgs",
     "markitdown[all]",
-    "textual-serve"
+    "textual-serve",
+    "sqlite-vec",
+    "semchunk"
 ]
 
 [project.scripts]

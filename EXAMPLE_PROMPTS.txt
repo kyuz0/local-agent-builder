@@ -66,3 +66,67 @@ CRITICAL ANTI-PATTERNS TO AVOID:
 2. DO NOT omit `agent_id` from delegation calls. Without explicit routing, delegation defaults to the first registered sub-agent (index 0), which is likely the wrong agent.
 3. DO NOT assume files exist before they are fetched. The Analyzer can only read files that the Searcher has already downloaded. The Searcher's prompt MUST instruct it to capture the filename from the fetch tool's response and pass it to the Analyzer.
 ```
+
+---
+
+## 2. Agentic RAG Agent (Document Corpus Search & Analysis)
+
+**Copy and paste the following prompt to your coding assistant:**
+
+```text
+Using the local-agent-builder skill, build an Agentic RAG Agent that can answer
+questions about a local document library using semantic search and precise
+document reading.
+
+Agent Architecture
+
+1. Single Flat Agent (no sub-agents needed for this pattern):
+   - Scope: Answers user questions by searching a pre-indexed document corpus
+     using semantic similarity, keyword matching, and precise document reading.
+   - Workflow:
+     1. Use `semantic_search` to find relevant chunks via vector similarity.
+     2. If the query contains specific terms (IPs, names, exact IDs), also use
+        `keyword_search` for exact matches.
+     3. Use `list_library_files` to discover what documents are available.
+     4. Use `read_library_file` with precise line bounds to read context around
+        found chunks.
+     5. Synthesize findings and cite sources with inline [1], [2] markers.
+   - Tooling: Give the agent `semantic_search`, `keyword_search`,
+     `list_library_files`, `read_library_file`, and `think_tool`.
+     Do NOT give it web search or URL-fetching tools — this is a pure
+     read-only corpus query agent.
+
+CRITICAL: Document Ingestion is NOT an LLM Activity
+   - The vector database is populated at STARTUP, before the LLM loop begins.
+   - The application code in `app.py` must:
+     1. Read RAG config from `settings.rag` (library_dir, chunk_size, etc.)
+     2. Instantiate VectorStore from `src/utils/vectorstore.py`
+     3. Call `vectorstore.sync()` to scan for new/changed files, parse them
+        (liteparse preferred, markitdown fallback), chunk via semchunk, embed
+        via /v1/embeddings, and store in sqlite-vec
+     4. Call `init_rag_tools(vectorstore)` to wire the instance into the tools
+     5. Pass RAG tools to the AgentBuilder
+   - The LLM agent NEVER triggers embedding or ingestion — it only queries
+     the pre-built index via its tools.
+
+RAG Library Configuration
+   - The user points the agent to a document directory via
+     `settings.rag.library_dir` in config.yaml.
+     Default: `~/.{APP_NAME}/libraries/`
+   - The sqlite-vec database is stored as `.rag.db` inside that directory.
+   - Embedding endpoint defaults to the same host as the LLM, but can be
+     overridden via `api.embedding_base_url` in config.yaml.
+   - Chunk size and overlap are configurable via `settings.rag.chunk_size`
+     and `settings.rag.chunk_overlap`.
+   - If RAG is not needed, remove `sqlite-vec` and `semchunk` from deps,
+     delete `src/tools/rag.py` and `src/utils/vectorstore.py`, and remove
+     the embedding and RAG config blocks from config_template.yaml.
+
+Operational Requirements
+   - Anti-Looping: Bake anti-looping blocks into the agent's prompt.
+   - Stop Early: If semantic_search returns a clear answer, cite it and stop.
+     Do not read every document exhaustively.
+   - Quotas: Restrict all RAG tools with quotas to prevent search loops.
+   - Citation: Agent MUST cite sources using inline [1], [2] markers and
+     list exact filenames at the end of its response.
+```

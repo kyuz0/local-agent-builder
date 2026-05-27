@@ -49,3 +49,21 @@ Do not manually parse binary files with PyPDF2 or Tesseract. Use the centralized
 The `basic-tui-agent` exports a highly restricted `run_shell_command` wrapper natively within its tool suite. This tool implements strict Humam-In-The-Loop approval hooks and natively wraps execution commands securely in Anthropic's Sandbox Runtime (`srt`).
 
 For detailed implementation caveats and OS-level limitations, refer strictly to the **[`SHELL.md`](./SHELL.md)** instructions.
+
+## 5. Vector Search & RAG
+**Rule: Document embedding is a programmatic utility, NOT an agent tool.**
+
+The scaffold includes a complete local vector search pipeline for building Retrieval-Augmented Generation (RAG) agents:
+- **`VectorStore`** (`src/utils/vectorstore.py`): Handles document parsing (liteparse preferred, markitdown fallback), chunking (via `semchunk`), embedding (via `/v1/embeddings`), and sqlite-vec storage. Called once at startup in `app.py` — NOT exposed to the agent.
+- **Agent Tools** (`src/tools/rag.py`): `semantic_search`, `keyword_search`, `list_library_files`, `read_library_file`. Import and assign these to agents in `app.py`.
+
+**Usage:** Import RAG tools from `examples/basic-tui-agent/src/tools/rag.py`. Wire the `VectorStore` instance via `init_rag_tools(vectorstore)` at startup before passing tools to the `AgentBuilder`.
+
+For full setup instructions, see **[`RAG.md`](./RAG.md)**.
+
+> [!CAUTION]
+> **VECTORSTORE IS A UTILITY, NOT A TOOL:**
+> Like `parsers.py`, the `VectorStore` class and its methods must never be decorated with `@tool` or passed to the `AgentBuilder` in `src/app.py`. Only the wrapper tools in `src/tools/rag.py` are agent-facing. All ingestion (parsing, chunking, embedding) happens programmatically at startup.
+
+> [!IMPORTANT]
+> **RAG PRUNING:** If the agent you are building does not need document corpus search or RAG capabilities, you MUST remove `sqlite-vec` and `semchunk` from `pyproject.toml`, delete `src/tools/rag.py` and `src/utils/vectorstore.py`, remove RAG imports from `tools/__init__.py`, and clean up the RAG config entries from `config_template.yaml`.

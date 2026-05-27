@@ -54,6 +54,7 @@ You will find the scaffold project and documentation for how to create agents in
 5. **[Coding Guidelines](resources/docs/CODING_GUIDELINES.md)**: LLM-focused code quality constraints (e.g. flat directory layouts over nesting, strict type hints, and eliminating useless inline comments to preserve tokens).
 6. **[Prompting & Delegation Guidelines](resources/docs/PROMPTING.md)**: Architectural rules for structuring Microsoft Agent-Framework pipelines. **(CRITICAL: The scaffold's system prompts in `src/prompts.py` are pre-optimized templates. You must retain all formatting variables like `{task_name}` or `{date}` in custom instructions. If you strip `{task_name}`, sub-agents run blindly. Ensure the orchestrator's instructions explicitly command it to analyze the user query, break it down into specific tasks, and propagate them to the sub-agents!)**
 7. **[Mailbox Daemon Pattern](resources/docs/MAILBOX.md)**: Architectural rules for wrapping agents into an optional background email workflow.
+8. **[RAG & Vector Search](resources/docs/RAG.md)**: Architecture and tools for building Retrieval-Augmented Generation agents with local vector search (sqlite-vec). *Only read this if the user requests document corpus querying, semantic search, or RAG capabilities.*
 
 ## Internal & External References
 You should search through and read the official Microsoft agent-framework documentation and samples before guessing APIs or mechanisms:
