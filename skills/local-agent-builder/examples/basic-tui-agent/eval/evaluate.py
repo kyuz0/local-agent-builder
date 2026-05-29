@@ -194,7 +194,7 @@ def score_regex(output: str, criteria: list[dict]) -> float:
     return round(earned / total, 3) if total > 0 else 0.0
 
 
-def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dict) -> float:
+def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dict, judge_timeout: int = 120) -> float:
     """
     LLM-as-judge scoring. Sends (query, criteria, output) to a judge LLM.
     Returns a float between 0.0 and 1.0.
@@ -239,7 +239,7 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
                 "Authorization": f"Bearer {api_key}",
             },
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=judge_timeout) as resp:
             data = json.loads(resp.read().decode())
         text = data["choices"][0]["message"]["content"].strip()
 
@@ -262,14 +262,14 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
 
 
 def evaluate_item(query: str, output: str, criteria: list[dict],
-                  eval_type: str, eval_cfg: dict) -> float:
+                  eval_type: str, eval_cfg: dict, judge_timeout: int = 120) -> float:
     """Dispatch to the configured evaluation strategy."""
     if eval_type == "contains":
         return score_contains(output, criteria)
     elif eval_type == "regex":
         return score_regex(output, criteria)
     elif eval_type == "llm_judge":
-        return score_llm_judge(query, output, criteria, eval_cfg)
+        return score_llm_judge(query, output, criteria, eval_cfg, judge_timeout)
     else:
         print(f"  [WARN] Unknown eval_type '{eval_type}', falling back to 'contains'")
         return score_contains(output, criteria)
@@ -302,8 +302,10 @@ def main() -> None:
     parser.add_argument("--config", "-c", default=None, help="Agent config.yaml to use as base")
     parser.add_argument("--limit", type=int, default=0, help="Max items to evaluate (0 = all)")
     parser.add_argument("--runs",  type=int, default=1, help="Runs per item (for variance)")
-    parser.add_argument("--model",    default=None, help="Model name for metadata (auto-detected if omitted)")
-    parser.add_argument("--hardware", default="unknown", help="Hardware tag for metadata")
+    parser.add_argument("--model",         default=None,  help="Model name for metadata (auto-detected if omitted)")
+    parser.add_argument("--hardware",      default="unknown", help="Hardware tag for metadata")
+    parser.add_argument("--timeout",       type=int, default=1200, help="Agent subprocess timeout in seconds (default: 1200)")
+    parser.add_argument("--judge-timeout", type=int, default=120,  help="LLM judge HTTP request timeout in seconds (default: 120)")
     args = parser.parse_args()
 
     eval_cfg = load_eval_config(args.eval_config)
@@ -321,6 +323,7 @@ def main() -> None:
     print(f"  model     : {model_name}")
     print(f"  hardware  : {args.hardware}")
     print(f"  runs/item : {args.runs}")
+    print(f"  timeout   : {args.timeout}s (agent)  {args.judge_timeout}s (judge)")
     print(f"  results   : {args.output}\n")
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -369,14 +372,14 @@ def main() -> None:
                     capture_output=True,
                     text=True,
                     cwd=project_root,
-                    timeout=600,
+                    timeout=args.timeout,
                 )
                 stdout_capture = proc.stdout
                 if proc.returncode != 0:
                     print(f"  [WARN] Agent exited with code {proc.returncode}")
                     print(f"  stderr: {proc.stderr[-300:]}")
             except subprocess.TimeoutExpired:
-                print("  [WARN] Agent timed out after 600s")
+                print(f"  [WARN] Agent timed out after {args.timeout}s")
             except Exception as e:
                 print(f"  [WARN] Agent run failed: {e}")
 
@@ -393,7 +396,7 @@ def main() -> None:
                 output_text = stdout_capture or ""
 
             # Score
-            score = evaluate_item(query, output_text, criteria, eval_type, eval_cfg)
+            score = evaluate_item(query, output_text, criteria, eval_type, eval_cfg, args.judge_timeout)
             print(f"  score={score:.3f}  time={elapsed:.1f}s  eval={eval_type}")
 
             entry = {
