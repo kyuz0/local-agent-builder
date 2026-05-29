@@ -19,7 +19,6 @@ import json
 import time
 import yaml
 import argparse
-import tempfile
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -322,88 +321,95 @@ def main() -> None:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     agent_script = os.path.join(project_root, AGENT_ENTRY)
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        # Each item gets a fresh workspace subdir inside tmp
-        for idx, item in enumerate(dataset):
-            query      = item.get("query", "")
-            criteria   = item.get("criteria", [])
-            artifact   = item.get("artifact")   # filename to read, or None for stdout
-            eval_type  = item.get("eval_type", "llm_judge")
+    # Persistent runs directory — workspace files are kept for inspection
+    runs_base = os.path.join(project_root, "eval", "runs")
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    runs_dir = os.path.join(runs_base, run_ts)
+    os.makedirs(runs_dir, exist_ok=True)
 
-            for run_idx in range(1, args.runs + 1):
-                key = (query, model_name, run_idx)
-                if key in existing:
-                    print(f"[{idx+1}/{len(dataset)}] run={run_idx} SKIP (already scored): {query[:60]}")
-                    continue
+    print(f"  workspaces: {runs_dir}\n")
 
-                print(f"\n[{idx+1}/{len(dataset)}] run={run_idx}: {query[:80]}")
+    for idx, item in enumerate(dataset):
+        query      = item.get("query", "")
+        criteria   = item.get("criteria", [])
+        artifact   = item.get("artifact")   # filename to read, or None for stdout
+        eval_type  = item.get("eval_type", "llm_judge")
 
-                # Per-run isolated workspace
-                run_tmp = os.path.join(tmp_dir, f"item{idx}_run{run_idx}")
-                os.makedirs(run_tmp, exist_ok=True)
-                tmp_cfg, workspace_dir = write_eval_config(args.config, project_root, run_tmp)
+        for run_idx in range(1, args.runs + 1):
+            key = (query, model_name, run_idx)
+            if key in existing:
+                print(f"[{idx+1}/{len(dataset)}] run={run_idx} SKIP (already scored): {query[:60]}")
+                continue
 
-                cmd = [
-                    sys.executable, agent_script,
-                    "--prompt", query,
-                    "--auto-approve",
-                    "--config", tmp_cfg,
-                ]
+            print(f"\n[{idx+1}/{len(dataset)}] run={run_idx}: {query[:80]}")
 
-                stdout_capture = []
-                t0 = time.time()
-                try:
-                    proc = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        cwd=project_root,
-                        timeout=600,
-                    )
-                    stdout_capture = proc.stdout
-                    if proc.returncode != 0:
-                        print(f"  [WARN] Agent exited with code {proc.returncode}")
-                        print(f"  stderr: {proc.stderr[-300:]}")
-                except subprocess.TimeoutExpired:
-                    print("  [WARN] Agent timed out after 600s")
-                    stdout_capture = ""
-                except Exception as e:
-                    print(f"  [WARN] Agent run failed: {e}")
-                    stdout_capture = ""
+            # Per-run isolated workspace under persistent runs_dir
+            run_dir = os.path.join(runs_dir, f"item{idx}_run{run_idx}")
+            os.makedirs(run_dir, exist_ok=True)
+            tmp_cfg, workspace_dir = write_eval_config(args.config, project_root, run_dir)
+            print(f"  workspace : {workspace_dir}")
 
-                elapsed = time.time() - t0
+            cmd = [
+                sys.executable, agent_script,
+                "--prompt", query,
+                "--auto-approve",
+                "--config", tmp_cfg,
+            ]
 
-                # Determine output to score
-                output_text: str = ""
-                if artifact:
-                    session_dir = find_latest_session(workspace_dir)
-                    output_text = (session_dir and read_artifact(session_dir, artifact)) or ""
-                    if not output_text:
-                        print(f"  [WARN] Artifact '{artifact}' not found in {session_dir or workspace_dir}")
-                else:
-                    output_text = stdout_capture or ""
+            stdout_capture = ""
+            t0 = time.time()
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=project_root,
+                    timeout=600,
+                )
+                stdout_capture = proc.stdout
+                if proc.returncode != 0:
+                    print(f"  [WARN] Agent exited with code {proc.returncode}")
+                    print(f"  stderr: {proc.stderr[-300:]}")
+            except subprocess.TimeoutExpired:
+                print("  [WARN] Agent timed out after 600s")
+            except Exception as e:
+                print(f"  [WARN] Agent run failed: {e}")
 
-                # Score
-                score = evaluate_item(query, output_text, criteria, eval_type, eval_cfg)
-                print(f"  score={score:.3f}  time={elapsed:.1f}s  eval={eval_type}")
+            elapsed = time.time() - t0
 
-                entry = {
-                    "timestamp":   datetime.now().isoformat(),
-                    "query":       query,
-                    "artifact":    artifact,
-                    "eval_type":   eval_type,
-                    "score":       score,
-                    "time_taken":  round(elapsed, 2),
-                    "run_index":   run_idx,
-                    "config": {
-                        "model":    model_name,
-                        "hardware": args.hardware,
-                    },
-                }
-                append_result(args.output, entry)
-                existing.add(key)
+            # Determine output to score
+            output_text: str = ""
+            if artifact:
+                session_dir = find_latest_session(workspace_dir)
+                output_text = (session_dir and read_artifact(session_dir, artifact)) or ""
+                if not output_text:
+                    print(f"  [WARN] Artifact '{artifact}' not found in {session_dir or workspace_dir}")
+            else:
+                output_text = stdout_capture or ""
+
+            # Score
+            score = evaluate_item(query, output_text, criteria, eval_type, eval_cfg)
+            print(f"  score={score:.3f}  time={elapsed:.1f}s  eval={eval_type}")
+
+            entry = {
+                "timestamp":   datetime.now().isoformat(),
+                "query":       query,
+                "artifact":    artifact,
+                "eval_type":   eval_type,
+                "score":       score,
+                "time_taken":  round(elapsed, 2),
+                "run_index":   run_idx,
+                "config": {
+                    "model":    model_name,
+                    "hardware": args.hardware,
+                },
+            }
+            append_result(args.output, entry)
+            existing.add(key)
 
     print(f"\nDone. Results appended to {args.output}")
+    print(f"Workspaces saved to {runs_dir}")
+
 
 
 if __name__ == "__main__":
