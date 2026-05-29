@@ -215,7 +215,7 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
         f"Task: Evaluate whether the output meets the criteria. Based on the weights provided, "
         f"calculate a final float score between 0.0 (nothing correct) and 1.0 (all criteria met).\n"
         f"Output ONLY valid JSON: {{\"score\": <float>}}\n"
-        f"No markdown, no explanation, no reasoning."
+        f"No markdown, no explanation."
     )
 
     try:
@@ -225,13 +225,10 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
         payload = json.dumps({
             "model": model,
             "messages": [
-                # /no_think suppresses chain-of-thought on Qwen3/llama.cpp thinking models.
-                # For non-thinking models it is a no-op.
-                {"role": "system", "content": "You are an expert evaluator. Always output valid JSON with a single 'score' key. /no_think"},
+                {"role": "system", "content": "You are an expert evaluator. Always output valid JSON with a single 'score' key."},
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": 128,   # enough for {"score": 0.123} even if think tags slip through
         }).encode()
 
         req = urllib.request.Request(
