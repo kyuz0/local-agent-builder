@@ -1,0 +1,11 @@
+api:
+  # LLM used to judge agent outputs (should be a strong, reliable model).
+  # Defaults to the same local llama.cpp endpoint as the agent itself.
+  # Override this to use a smarter judge (e.g., a cloud model) for better scoring accuracy.
+  openai_base_url: http://localhost:8080/v1
+  openai_model: local-model
+  openai_api_key: ""
+  # Example: use a cloud model for judging (requires OPENAI_API_KEY env var):
+  # openai_base_url: https://api.openai.com/v1
+  # openai_model: gpt-4o-mini
+  # openai_api_key: ""  # loaded from OPENAI_API_KEY env var

@@ -1,0 +1,1 @@
+{"query": "REPLACE WITH YOUR EVAL QUERY", "artifact": null, "eval_type": "contains", "criteria": [{"answer": "expected answer", "weight": 1.0}]}
