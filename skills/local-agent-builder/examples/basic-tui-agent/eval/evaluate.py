@@ -215,21 +215,23 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
         f"Task: Evaluate whether the output meets the criteria. Based on the weights provided, "
         f"calculate a final float score between 0.0 (nothing correct) and 1.0 (all criteria met).\n"
         f"Output ONLY valid JSON: {{\"score\": <float>}}\n"
-        f"No markdown, no explanation."
+        f"No markdown, no explanation, no reasoning."
     )
 
     try:
         import urllib.request
-        import urllib.error
+        import re as _re
 
         payload = json.dumps({
             "model": model,
             "messages": [
-                {"role": "system", "content": "You are an expert evaluator. Always output valid JSON with a single 'score' key."},
+                # /no_think suppresses chain-of-thought on Qwen3/llama.cpp thinking models.
+                # For non-thinking models it is a no-op.
+                {"role": "system", "content": "You are an expert evaluator. Always output valid JSON with a single 'score' key. /no_think"},
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": 32,
+            "max_tokens": 128,   # enough for {"score": 0.123} even if think tags slip through
         }).encode()
 
         req = urllib.request.Request(
@@ -243,17 +245,23 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode())
         text = data["choices"][0]["message"]["content"].strip()
+
+        # Strip <think>...</think> blocks if the model ignored /no_think
+        text = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL).strip()
+
         # Strip markdown fences if present
         for fence in ("```json", "```"):
             if text.startswith(fence):
                 text = text[len(fence):]
         if text.endswith("```"):
             text = text[:-3]
+
         result = json.loads(text.strip())
         return float(result.get("score", 0.0))
     except Exception as e:
         print(f"  [WARN] LLM judge failed: {e}")
         return 0.0
+
 
 
 def evaluate_item(query: str, output: str, criteria: list[dict],
