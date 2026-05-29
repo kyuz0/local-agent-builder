@@ -17,9 +17,7 @@ import os
 import sys
 import json
 import time
-import copy
 import yaml
-import shutil
 import argparse
 import tempfile
 import subprocess
@@ -77,32 +75,55 @@ def append_result(results_path: str, entry: dict) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def write_eval_config(base_config_path: str, tmp_dir: str, app_name: str) -> tuple[str, str]:
+def write_eval_config(base_config_path: str | None, project_root: str, tmp_dir: str) -> tuple[str, str]:
     """
-    Write a temporary agent config that forces disk workspace + session isolation.
+    Write a complete, explicit agent config for one eval run.
 
-    Returns (tmp_config_path, workspace_dir) where workspace_dir is where the
-    agent will write its session files.
+    Loads src/config_template.yaml from the project (the canonical source of
+    all quota/concurrency/API defaults) then overlays eval-specific overrides.
+    Pass --config to override the base entirely with your own file.
+
+    Returns (tmp_config_path, workspace_dir).
     """
     workspace_dir = os.path.join(tmp_dir, "workspace")
     os.makedirs(workspace_dir, exist_ok=True)
 
-    # Load the base config (agent's existing config or template)
-    base_cfg: dict = {}
+    # Determine base: explicit --config arg, or project's config_template.yaml
     if base_config_path and os.path.exists(base_config_path):
-        with open(base_config_path) as f:
-            base_cfg = yaml.safe_load(f) or {}
+        base_path = base_config_path
+    else:
+        base_path = os.path.join(project_root, "src", "config_template.yaml")
 
-    # Patch workspace to disk + session isolation for this eval run
-    cfg = copy.deepcopy(base_cfg)
-    cfg.setdefault("settings", {}).setdefault("workspace", {})
+    if not os.path.exists(base_path):
+        raise FileNotFoundError(
+            f"No agent config found at '{base_path}'. "
+            "Pass --config <path> or ensure src/config_template.yaml exists."
+        )
+
+    with open(base_path) as f:
+        cfg = yaml.safe_load(f) or {}
+
+    # --- Explicitly set every eval-relevant field ---
+
+    # Force disk workspace with per-run session isolation
+    cfg.setdefault("settings", {})
+    cfg["settings"].setdefault("workspace", {})
     cfg["settings"]["workspace"]["type"] = "disk"
     cfg["settings"]["workspace"]["dir"] = workspace_dir
     cfg["settings"]["workspace"]["session_isolation"] = True
 
-    # Disable interactive features that block headless runs
+    # Disable features that block or pollute headless runs
     cfg["settings"]["enable_conversational_memory"] = False
     cfg["settings"]["enable_session_persistence"] = False
+
+    # Disable thinking unless the template explicitly enables it
+    # (thinking mode adds tokens and slows eval without improving scores)
+    cfg["settings"].setdefault("enable_thinking", False)
+
+    # Permissions: auto-approve everything so the harness never blocks
+    cfg["settings"].setdefault("permissions", {})
+    for perm_key in list(cfg["settings"]["permissions"].keys()):
+        cfg["settings"]["permissions"][perm_key] = "auto_approve"
 
     tmp_config_path = os.path.join(tmp_dir, "eval_agent_config.yaml")
     with open(tmp_config_path, "w") as f:
@@ -308,7 +329,6 @@ def main() -> None:
             criteria   = item.get("criteria", [])
             artifact   = item.get("artifact")   # filename to read, or None for stdout
             eval_type  = item.get("eval_type", "llm_judge")
-            base_cfg   = args.config
 
             for run_idx in range(1, args.runs + 1):
                 key = (query, model_name, run_idx)
@@ -321,7 +341,7 @@ def main() -> None:
                 # Per-run isolated workspace
                 run_tmp = os.path.join(tmp_dir, f"item{idx}_run{run_idx}")
                 os.makedirs(run_tmp, exist_ok=True)
-                tmp_cfg, workspace_dir = write_eval_config(base_cfg, run_tmp, app_name="agent")
+                tmp_cfg, workspace_dir = write_eval_config(args.config, project_root, run_tmp)
 
                 cmd = [
                     sys.executable, agent_script,
