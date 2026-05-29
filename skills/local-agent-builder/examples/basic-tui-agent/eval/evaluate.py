@@ -207,11 +207,21 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
     api_key = api.get("openai_api_key", "") or "dummy"
     model = api.get("openai_model", "local-model")
 
+    # Truncate output to avoid blowing the judge's context window.
+    # For non-artifact queries, stdout includes the full headless banner,
+    # tool call traces, and sub-agent logs — most of which is irrelevant
+    # to scoring. Keep the last ~8000 chars which contains the final answer.
+    MAX_OUTPUT_CHARS = 8000
+    truncated = output
+    if len(output) > MAX_OUTPUT_CHARS:
+        truncated = "... [truncated] ...\n" + output[-MAX_OUTPUT_CHARS:]
+        print(f"  [INFO] Output truncated for judge: {len(output)} → {MAX_OUTPUT_CHARS} chars")
+
     prompt = (
         f"You are an expert evaluator assessing an AI agent's output.\n\n"
         f"User Query: {query}\n\n"
         f"Criteria to check:\n{json.dumps(criteria, indent=2)}\n\n"
-        f"Agent Output:\n{output}\n\n"
+        f"Agent Output:\n{truncated}\n\n"
         f"Task: Evaluate whether the output meets the criteria. Based on the weights provided, "
         f"calculate a final float score between 0.0 (nothing correct) and 1.0 (all criteria met).\n"
         f"Output ONLY valid JSON: {{\"score\": <float>}}\n"
@@ -220,6 +230,7 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
 
     try:
         import urllib.request
+        import urllib.error
         import re as _re
 
         payload = json.dumps({
@@ -243,7 +254,7 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
             data = json.loads(resp.read().decode())
         text = data["choices"][0]["message"]["content"].strip()
 
-        # Strip <think>...</think> blocks if the model ignored /no_think
+        # Strip <think>...</think> blocks from thinking models
         text = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL).strip()
 
         # Strip markdown fences if present
@@ -255,6 +266,14 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
 
         result = json.loads(text.strip())
         return float(result.get("score", 0.0))
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode()[:300]
+        except Exception:
+            pass
+        print(f"  [WARN] LLM judge HTTP {e.code}: {body}")
+        return 0.0
     except Exception as e:
         print(f"  [WARN] LLM judge failed: {e}")
         return 0.0
