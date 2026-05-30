@@ -1184,6 +1184,12 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_
             sub_quotas[k] = {"used": 0, "limit": v["limit"], "rules": v.get("rules", {})}
     token = tool_quotas_ctx.set(sub_quotas)
 
+    session_token = None
+    if config.cfg.get("settings", {}).get("workspace", {}).get("session_isolation", False):
+        import time
+        from tools.fs import session_dir_ctx
+        session_token = session_dir_ctx.set(f"run_{int(time.time())}")
+
     async def cli_subagent_callback(update, is_subagent=True, is_done=False, **kwargs):
         agent_name = kwargs.get("agent_name") or getattr(update, "author_name", None) or "Sub-Agent"
         
@@ -1332,6 +1338,9 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_
         sys.stdout.write(f"\n\033[91mError:\033[0m {e}\n")
     finally:
         tool_quotas_ctx.reset(token)
+        if session_token is not None:
+            from tools.fs import session_dir_ctx
+            session_dir_ctx.reset(session_token)
 
 def cli_main(builder):
     parser = argparse.ArgumentParser(description="Basic Agent TUI / CLI Scaffold")

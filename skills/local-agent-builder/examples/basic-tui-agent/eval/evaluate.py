@@ -409,9 +409,7 @@ def main() -> None:
             if artifact:
                 session_dir = find_latest_session(workspace_dir)
                 output_text = (session_dir and read_artifact(session_dir, artifact)) or ""
-                if not output_text:
-                    print(f"  [WARN] Artifact '{artifact}' not found in {session_dir or workspace_dir}")
-            else:
+            if not output_text:
                 output_text = stdout_capture or ""
 
             # Score
