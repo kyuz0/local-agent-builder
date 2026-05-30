@@ -42,7 +42,7 @@ async def fetch_url_to_workspace(url: str, filename: str, convert_to_md: bool = 
         if not path: return f"Error: Invalid filename '{filename}'."
         
         if isinstance(data, str):
-            chunk = data[:100000] # Allow larger sizes for markdown text
+            chunk = data[:5000000] # Allow larger sizes for markdown text (up to 5MB)
             mode = "w"
             encoding = "utf-8"
         else:
