@@ -12,24 +12,69 @@ from tools.fs import _get_safe_path, _get_workspace_type, _get_workspace_dir, _I
 async def fetch_url_to_workspace(url: str, filename: str, convert_to_md: bool = True) -> str:
     """Fetch external web content and save it directly to the workspace. If convert_to_md is True, parses to Markdown."""
     def _fetch():
-        if convert_to_md:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+        resp = httpx.get(url, headers=headers, timeout=30, follow_redirects=True)
+
+        if not convert_to_md:
+            return resp.content  # Raw bytes
+
+        content_type = resp.headers.get("content-type", "").lower()
+        # Check actual bytes — a URL might say .pdf but serve HTML (JS-gated doc viewers)
+        is_actual_pdf = resp.content[:4] == b"%PDF"
+        is_pdf = is_actual_pdf or ("application/pdf" in content_type and is_actual_pdf)
+
+        if is_pdf:
+            # Save to temp file, then parse locally
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(resp.content)
+                tmp_path = tmp.name
+            try:
+                # Try liteparse first (better spatial accuracy for PDFs)
+                import shutil
+                if shutil.which("liteparse"):
+                    import subprocess
+                    result = subprocess.run(
+                        ["liteparse", tmp_path],
+                        capture_output=True, text=True, timeout=60
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        return result.stdout
+
+                # Fallback to markitdown on local file
+                try:
+                    from utils.parsers import convert_to_markdown
+                    md_content = convert_to_markdown(tmp_path)
+                    if md_content:
+                        return md_content
+                except ImportError:
+                    pass
+
+                return f"[ERROR: PDF at {url} could not be parsed. Size: {len(resp.content)} bytes. Try a different source.]"
+            finally:
+                os.unlink(tmp_path)
+        else:
+            # HTML path: try markitdown on local temp file first, then BeautifulSoup fallback
             try:
                 from utils.parsers import convert_to_markdown
-                md_content = convert_to_markdown(url)
-                if md_content: return md_content
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="wb") as tmp:
+                    tmp.write(resp.content)
+                    tmp_path = tmp.name
+                try:
+                    md_content = convert_to_markdown(tmp_path)
+                    if md_content:
+                        return md_content
+                finally:
+                    os.unlink(tmp_path)
             except ImportError:
                 pass
-                
-            # Fallback to standard HTTPX and BeautifulSoup
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-            resp = httpx.get(url, headers=headers, timeout=15, follow_redirects=True)
+
+            # BeautifulSoup fallback for HTML
             soup = BeautifulSoup(resp.text, "html.parser")
             for script in soup(["script", "style", "nav", "footer"]): script.extract()
             return '\n'.join(line for line in (l.strip() for l in soup.get_text(separator='\n').splitlines()) if line)
-        else:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-            resp = httpx.get(url, headers=headers, timeout=15, follow_redirects=True)
-            return resp.content # Return raw bytes
+
         
     try:
         data = await asyncio.to_thread(_fetch)

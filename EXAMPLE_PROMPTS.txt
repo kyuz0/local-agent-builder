@@ -17,32 +17,15 @@ Agent Architecture
    - Scope: Serves as the primary task manager and reporter. It breaks down the main user query into actionable research tasks and synthesizes the final report.
    - Instructions: Creates a TODO list outlining the research phases. For each phase, it dispatches specialized Search Sub-Agents to gather information. If multiple independent research angles exist for a phase, it MUST delegate those Search Sub-Agents concurrently rather than sequentially. It must write the user's original query to query.md and produce a final final_report.md with a highly professional structure.
    - Tooling Guidelines: Provide tools for task management and file writing (e.g., `write_todos`, `read_todos`, `write_workspace_file`, `read_workspace_file`, `list_workspace_files`). Do not give this agent web search or URL-fetching capabilities, as that breaks the delegation model and forces the orchestrator to do the heavy lifting.
-   - Delegation Routing: The Orchestrator's system prompt MUST explicitly teach the LLM to pass `"agent_id": "Searcher"` in every `delegate_tasks` call. Without this, delegation routes to the wrong sub-agent. Include a concrete example in the prompt, like:
-     ```
-     When delegating research tasks, you MUST always specify the agent:
-     delegate_tasks(tasks=[
-       {{"task_name": "Research topic X", "instructions": "Search for ...", "agent_id": "Searcher"}},
-       {{"task_name": "Research topic Y", "instructions": "Search for ...", "agent_id": "Searcher"}}
-     ])
-     ```
-     IMPORTANT: Note the double-braces `{{` and `}}` above. Since these examples are embedded inside Python prompt strings that go through `.format()`, you MUST double-brace all JSON curly braces to prevent `ValueError: Invalid format specifier` crashes. Single braces `{` are reserved for engine variables like `{date}` and `{task_name}`.
+   - Delegation Routing: The Orchestrator's system prompt MUST teach the LLM which sub-agents exist and when to use each one. Include a concrete `delegate_tasks` call example showing the exact `agent_id` string. Without this, the LLM will omit `agent_id` and delegation silently routes to the wrong agent. (See PROMPTING.md §8 for the pattern and double-brace rules).
 
 2. Search Sub-Agent:
    - Scope: Acts as the web crawler to find relevant pages and download them for deeper analysis.
    - Instructions: Receives the specific research task from the Orchestrator. It MUST NOT hallucinate or guess URLs from its internal knowledge. The strict workflow must be:
      1. Use `web_search` to find live, verified links.
      2. Fetch those specific links to the local workspace via `fetch_url_to_workspace`.
-     3. CRITICAL DATA-FLOW RULE: After fetching, the tool returns a confirmation message containing the saved filename (e.g., "Fetched URL successfully to 'microsoft_ai_research_143022.md'"). The Search Sub-Agent MUST capture this exact filename and pass it in the delegation instructions to the Page Analyzer. If it does not pass the filename, the Analyzer will not know which file to read.
-     4. Delegate the reading and parsing of all downloaded documents concurrently to a batch of nested Page Analyzer Sub-Agents, passing each the exact filename and the original research context.
-     5. When returning findings, explicitly include all URLs and sources so the Orchestrator can cite them.
-   - Delegation Routing: The Search Sub-Agent's system prompt MUST explicitly teach the LLM to pass `"agent_id": "Analyzer"` in every `delegate_tasks` call. Include a concrete example in the prompt, like:
-     ```
-     After fetching pages, delegate analysis. You MUST pass the exact filename and agent:
-     delegate_tasks(tasks=[
-       {{"task_name": "Analyze microsoft_ai_research_143022.md", "instructions": "Read the file 'microsoft_ai_research_143022.md' and extract key findings about ...", "agent_id": "Analyzer"}}
-     ])
-     ```
-     IMPORTANT: Use double-braces `{{` and `}}` for all JSON curly braces in prompt strings. Single braces are reserved for engine format variables.
+   - Delegation Routing: Same as the Orchestrator — the Searcher's prompt MUST teach the LLM the exact `agent_id` to target when delegating to child agents (e.g., Analyzers). Include a concrete example. (See PROMPTING.md §8 for the pattern).
+   - Data-Flow Integrity: After fetching a URL, the tool returns the saved filename. The Searcher's prompt MUST instruct the LLM to capture this filename and embed it in the delegation instructions for the child Analyzer. Without this, the Analyzer is dispatched blind. (See PROMPTING.md §9 for the pattern).
    - Tooling Guidelines: ONLY give this agent web capabilities and a tool to dispatch analyzers (e.g., `web_search`, `fetch_url_to_workspace`). It MUST NOT have `read_workspace_file` or `grep_workspace_file` — withholding these tools forces delegation to the Analyzer. If the Searcher can read files itself, it will skip delegation and bloat its own context window, defeating the entire architecture.
 
 3. Page Analyzer Sub-Agent:
@@ -58,6 +41,16 @@ Operational Requirements
   4. Downloaded pages MUST be named using a url-slug + timestamp to prevent collisions (e.g., `microsoft_ai_research_143022.md`). NEVER allow the creation of separate subfolders.
 - Anti-Looping Traps: You MUST explicitly bake the `<Anti-Looping>` XML block (from PROMPTING.md) into the system instructions of BOTH the Orchestrator and every Sub-Agent to prevent infinite retry loops on tool failures.
 - Stop Early Conditions: You MUST explicitly instruct the Orchestrator, Search Sub-Agent, and Page Analyzer to STOP working immediately when they believe they have enough information to confidently answer the user's query. Explicitly tell them: "Do NOT visit all links or max out your quotas. If you have found the answer corroborated by at least 2 strong sources, stop immediately and return your findings."
+- Proportional Search Depth: The Orchestrator MUST assess query complexity BEFORE planning its delegation strategy:
+   - Simple factual queries (single fact lookups): dispatch a SINGLE Searcher. One or two authoritative sources is sufficient. Do NOT create multi-phase research plans for simple lookups.
+   - Multi-fact queries (multiple facts likely on the same page): a single Searcher is still sufficient.
+   - Comparative or synthesis queries: dispatch one Searcher per independent research angle, concurrently.
+   - Deep research / report generation: use the full multi-phase approach.
+- Source Quality Awareness: The Search Sub-Agent MUST evaluate source authority to decide when to stop:
+   - Authoritative/official sources (manufacturer websites, official documentation, spec sheets): ONE source is sufficient. Do not search further to corroborate an official spec page.
+   - Semi-authoritative sources (established tech publications): one source is usually sufficient, but a second is welcome if readily available.
+   - Informal sources (forums, blogs, wikis): corroborate with at least one additional source before trusting the data.
+   For simple factual queries, if the first web search returns a clear answer from an authoritative source, fetch that ONE page, delegate analysis, and stop. Do not run additional searches.
 - Adaptive Reporting: Instruct the Orchestrator to dynamically determine the `final_report.md` template structure (simple list vs. complex sections like Methodology/Sources) based strictly on the complexity of the original user query. 
 - Configurable Quotas: Every single tool across all agents (including sub-agent delegations) MUST be heavily restricted with quotas in the config.yaml to prevent infinite web-scraping recursion.
 

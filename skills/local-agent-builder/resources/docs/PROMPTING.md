@@ -167,3 +167,41 @@ Example:
 > [!CAUTION]
 > **Anti-Pattern: Tool Leaking.** If a parent agent (e.g., Searcher) is given the tools that its child agent (e.g., Analyzer) is supposed to use (like `read_workspace_file`), the LLM will skip delegation entirely and read files itself. This defeats the architecture by bloating the parent's context window. **Always withhold child-specific tools from the parent** to force proper delegation.
 
+## 10. Proportional Effort & Quality-Based Stopping
+
+Agents with delegation capabilities tend to over-plan: dispatching multiple sub-agents, creating elaborate multi-phase plans, or exhausting tool quotas even when the task is trivial. Conversely, they may under-invest on genuinely complex tasks. Both waste time and context on local hardware.
+
+### Matching Effort to Complexity
+
+Instruct the **top-level agent** to assess task complexity before planning, and scale its delegation accordingly:
+
+```markdown
+<Effort Scaling>
+Match your effort to the task complexity:
+- **Simple / single-fact tasks**: Use the minimum delegation needed. Do NOT create multi-phase plans or dispatch multiple sub-agents for straightforward requests.
+- **Multi-part tasks** where the parts are closely related: A single delegation is often still sufficient if the information is likely co-located.
+- **Comparative or multi-source tasks** with independent parts: Delegate one sub-agent per independent angle. These benefit from concurrent delegation.
+- **Complex / open-ended tasks**: Use the full multi-phase approach with planning, multiple delegations, and synthesis.
+
+Do NOT over-plan. If the task is simple, execute it directly rather than building an elaborate workflow.
+</Effort Scaling>
+```
+
+### Teaching Agents When to Stop
+
+Sub-agents tend to exhaust their tool quotas by default. Instruct them to evaluate what they have and stop early when the result is good enough:
+
+```markdown
+<Stop Criteria>
+Do NOT exhaust your tools or quotas by default. Evaluate what you have after each step:
+- If you have a high-confidence answer from a reliable source, stop immediately.
+- If your result is uncertain or comes from a low-quality source, invest one more step to verify before stopping.
+- If a tool call returns unhelpful results (e.g., a page that requires JavaScript, a captcha, or irrelevant content), do not retry — move to an alternative approach.
+
+The goal is the best answer in the fewest steps, not the most thorough exploration.
+</Stop Criteria>
+```
+
+> [!TIP]
+> These blocks complement the `<Hard Limits>` and `<Stop Early>` directives from §3. The key difference: §3 defines *budget limits* (when you must stop because quotas are exhausted), while this section defines *quality-based stopping* (when you should stop because you already have a good enough result).
+

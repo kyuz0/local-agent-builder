@@ -53,7 +53,7 @@ def load_dataset(path: str, limit: int = 0) -> list[dict]:
 
 
 def load_existing_keys(results_path: str) -> set[tuple]:
-    """Return set of (query, model, run_index) already in results file."""
+    """Return set of (query, model, hardware, run_index) already in results file."""
     existing = set()
     if not os.path.exists(results_path):
         return existing
@@ -62,7 +62,7 @@ def load_existing_keys(results_path: str) -> set[tuple]:
             if line.strip():
                 try:
                     r = json.loads(line)
-                    existing.add((r["query"], r["config"]["model"], r["run_index"]))
+                    existing.add((r["query"], r["config"]["model"], r["config"].get("hardware", "unknown"), r["run_index"]))
                 except Exception:
                     pass
     return existing
@@ -113,7 +113,7 @@ def write_eval_config(base_config_path: str | None, project_root: str, tmp_dir: 
 
     # Disable features that block or pollute headless runs
     cfg["settings"]["enable_conversational_memory"] = False
-    cfg["settings"]["enable_session_persistence"] = False
+    cfg["settings"]["enable_session_persistence"] = True
 
     # Disable thinking unless the template explicitly enables it
     # (thinking mode adds tokens and slows eval without improving scores)
@@ -210,8 +210,8 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
     # Truncate output to avoid blowing the judge's context window.
     # For non-artifact queries, stdout includes the full headless banner,
     # tool call traces, and sub-agent logs — most of which is irrelevant
-    # to scoring. Keep the last ~8000 chars which contains the final answer.
-    MAX_OUTPUT_CHARS = 8000
+    # to scoring. Keep the last ~50000 chars which contains the final answer.
+    MAX_OUTPUT_CHARS = 50000
     truncated = output
     if len(output) > MAX_OUTPUT_CHARS:
         truncated = "... [truncated] ...\n" + output[-MAX_OUTPUT_CHARS:]
@@ -363,7 +363,7 @@ def main() -> None:
         eval_type  = item.get("eval_type", "llm_judge")
 
         for run_idx in range(1, args.runs + 1):
-            key = (query, model_name, run_idx)
+            key = (query, model_name, args.hardware, run_idx)
             if key in existing:
                 print(f"[{idx+1}/{len(dataset)}] run={run_idx} SKIP (already scored): {query[:60]}")
                 continue
@@ -384,6 +384,7 @@ def main() -> None:
             ]
 
             stdout_capture = ""
+            stderr_capture = ""
             t0 = time.time()
             try:
                 proc = subprocess.run(
@@ -394,13 +395,29 @@ def main() -> None:
                     timeout=args.timeout,
                 )
                 stdout_capture = proc.stdout
+                stderr_capture = proc.stderr
                 if proc.returncode != 0:
                     print(f"  [WARN] Agent exited with code {proc.returncode}")
                     print(f"  stderr: {proc.stderr[-300:]}")
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as e:
                 print(f"  [WARN] Agent timed out after {args.timeout}s")
+                stdout_capture = (e.stdout or b"").decode("utf-8", errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+                stderr_capture = (e.stderr or b"").decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
             except Exception as e:
                 print(f"  [WARN] Agent run failed: {e}")
+
+            # Save logs to the run folder for troubleshooting
+            try:
+                def _ensure_str(v):
+                    if isinstance(v, bytes):
+                        return v.decode("utf-8", errors="replace")
+                    return v or ""
+                with open(os.path.join(run_dir, "agent_stdout.log"), "w", encoding="utf-8") as f:
+                    f.write(_ensure_str(stdout_capture))
+                with open(os.path.join(run_dir, "agent_stderr.log"), "w", encoding="utf-8") as f:
+                    f.write(_ensure_str(stderr_capture))
+            except Exception as le:
+                print(f"  [WARN] Failed to write agent logs: {le}")
 
             elapsed = time.time() - t0
 
