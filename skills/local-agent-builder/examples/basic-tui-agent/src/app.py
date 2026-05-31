@@ -24,6 +24,20 @@ import config
 # TOOL ASSIGNMENT: Use WORKSPACE_TOOLS if the agent needs all tools.
 # For selective tools (e.g. withholding web_search from an analyzer), import
 # individual tools above and pass an explicit list: tools=[read_workspace_file, grep_workspace_file]
+#
+# DELEGATION CHAIN: Use sub_agents=[] on SubAgentConfig to control which children
+# each agent can delegate to. Only agents with sub_agents get the delegate_tasks tool.
+# Example for a 3-tier chain (Orchestrator -> Searcher -> Analyzer):
+#
+#   analyzer = SubAgentConfig(name="Analyzer", instructions=ANALYZER_INSTRUCTIONS,
+#       tools=[read_workspace_file, grep_workspace_file, think_tool])  # leaf: no sub_agents
+#
+#   searcher = SubAgentConfig(name="Searcher", instructions=SEARCHER_INSTRUCTIONS,
+#       tools=[web_search, fetch_url_to_workspace, think_tool],
+#       sub_agents=[analyzer])  # can only delegate to Analyzer
+#
+#   app = AgentBuilder(..., sub_agents=[searcher])  # orchestrator can only delegate to Searcher
+#
 researcher = SubAgentConfig(
     name="Researcher",
     instructions=SUBAGENT_INSTRUCTIONS,

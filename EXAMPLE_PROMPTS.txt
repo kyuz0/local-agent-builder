@@ -17,15 +17,19 @@ DELEGATION CHAIN (strictly hierarchical, one direction only):
   Orchestrator  →  delegates to  →  Searcher  →  delegates to  →  Analyzer
 
 TOOL ASSIGNMENT TABLE (each agent gets ONLY these tools, no exceptions):
-  Orchestrator : write_workspace_file, list_workspace_files, write_todos, read_todos, think_tool, delegate_tasks
-  Searcher     : web_search, fetch_url_to_workspace, think_tool, delegate_tasks
+  Orchestrator : write_workspace_file, list_workspace_files, write_todos, read_todos, think_tool, delegate_tasks (auto-injected)
+  Searcher     : web_search, fetch_url_to_workspace, think_tool, delegate_tasks (auto-injected)
   Analyzer     : read_workspace_file, grep_workspace_file, think_tool
 
 The Orchestrator has NO web tools and NO file reading tools. It delegates to Searchers.
 The Searcher has NO file reading tools. It delegates to Analyzers.
 The Analyzer has NO web tools and NO delegation capability. It reads files and returns findings.
 
-This separation is enforced by physically withholding tools in app.py, NOT by prompt instructions.
+This separation is enforced TWO ways in app.py:
+1. Tool withholding: each SubAgentConfig gets only its own selective tool list.
+2. Scoped sub_agents: each SubAgentConfig declares which children it can delegate to via sub_agents=[...].
+   The engine only injects delegate_tasks into agents that have children. Leaf agents cannot delegate.
+   The Orchestrator's sub_agents=[searcher]. The Searcher's sub_agents=[analyzer]. The Analyzer has no sub_agents.
 
 1. Orchestrator Agent:
    - Scope: Primary task manager and final report writer. It plans research, dispatches Searchers, and synthesizes their returned summaries into `final_report.md`.

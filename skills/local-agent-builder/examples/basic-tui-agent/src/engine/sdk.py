@@ -5,6 +5,7 @@ class SubAgentConfig(BaseModel):
     name: str = Field(..., description="Name of the subagent without spaces")
     instructions: str = Field(..., description="Instructions for the subagent. Use {date} and {task_name} placeholders.")
     tools: List[Callable] = Field(default_factory=list, description="List of tool functions for the subagent")
+    sub_agents: List["SubAgentConfig"] = Field(default_factory=list, description="Sub-agents this agent can delegate to. Only these agents will be available via delegate_tasks.")
 
 class AgentBuilder:
     def __init__(self, name: str, description: str, instructions: str, tools: List[Callable], sub_agents: Optional[List[SubAgentConfig]] = None):

@@ -12,6 +12,7 @@ import contextvars
 # Module-level session for conversational memory persistence
 _session = None
 delegation_depth_ctx = contextvars.ContextVar('delegation_depth_ctx', default=0)
+available_sub_agents_ctx = contextvars.ContextVar('available_sub_agents_ctx', default=[])
 
 def apply_tool_permissions(tools: list) -> list:
     """Dynamically applies approval boundaries mapped in config.yaml."""
@@ -100,22 +101,29 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
             try:
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
+                # Look up the target agent from the CALLER's available sub-agents (scoped, not global)
+                caller_sub_agents = available_sub_agents_ctx.get()
                 target_config = None
-                if agent_id and builder.sub_agents:
-                    for conf in builder.sub_agents:
+                if agent_id and caller_sub_agents:
+                    for conf in caller_sub_agents:
                         if conf.name == agent_id:
                             target_config = conf
                             break
                     if target_config is None:
-                        return f"## Error for {task_name}\nFailed to delegate: Sub-agent named '{agent_id}' does not exist. Available registered sub-agents: {[c.name for c in builder.sub_agents]}.\n---"
+                        return f"## Error for {task_name}\nFailed to delegate: Sub-agent named '{agent_id}' does not exist. Available sub-agents for this caller: {[c.name for c in caller_sub_agents]}.\n---"
                 else:
-                    target_config = builder.sub_agents[0] if builder.sub_agents else None
+                    target_config = caller_sub_agents[0] if caller_sub_agents else None
                     
                 sub_tools = apply_tool_permissions(target_config.tools.copy() if target_config else [])
-                if builder.sub_agents and delegate_tasks not in sub_tools:
+                # Only inject delegate_tasks if the TARGET agent has its own children
+                target_children = target_config.sub_agents if target_config else []
+                if target_children and delegate_tasks not in sub_tools:
                     sub_tools.append(delegate_tasks)
                 if think_tool not in sub_tools:
                     sub_tools.append(think_tool)
+                
+                # Scope the available sub-agents for the target agent's own delegate_tasks calls
+                children_token = available_sub_agents_ctx.set(target_children)
                     
                 sub_instr = ""
                 if target_config:
@@ -181,6 +189,7 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
 
                 return f"## Result for {task_name}\n{final_text}\n---"
             finally:
+                available_sub_agents_ctx.reset(children_token)
                 holds_token.reset(token_setter)
                 delegation_depth_ctx.reset(depth_token)
 
@@ -226,10 +235,12 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
     # DO NOT rewrite this entire function or file from scratch.
     # -------------------------------------------------------------
     # -------------------------------------------------------------
-    # Orchestrator retains full access to WORKSPACE_TOOLS but gains `delegate_tasks`
+    # Orchestrator retains full access to its declared tools, gains `delegate_tasks` if it has sub_agents
     tools_list = apply_tool_permissions(builder.tools.copy())
     if builder.sub_agents:
         tools_list.append(delegate_tasks)
+    # Set the orchestrator's available sub-agents for scoped delegation
+    available_sub_agents_ctx.set(builder.sub_agents)
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     workspace_dir = config.cfg.get("settings", {}).get("workspace", {}).get("dir", ".")
 

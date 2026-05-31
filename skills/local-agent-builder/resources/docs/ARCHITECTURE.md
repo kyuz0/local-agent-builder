@@ -95,17 +95,19 @@ Managing context windows is critical for local LLMs. You must actively prevent "
 ### Nested Sub-Agent Delegation (Multi-Tier)
 The orchestration engine natively supports multi-level nested delegation (e.g. Orchestrator -> Search Sub-Agent -> Page Analyzer Sub-Agent) out-of-the-box.
 To configure nested sub-agents:
-1. **Declare all sub-agents in the flat registry:** Define every sub-agent as a `SubAgentConfig` in `src/app.py` (e.g. `search_agent = SubAgentConfig(...)` and `analyzer_agent = SubAgentConfig(...)`).
-2. **Register them with the main builder:** Pass all sub-agents in the flat `sub_agents` list of the `AgentBuilder` constructor in `src/app.py` (e.g. `sub_agents=[search_agent, analyzer_agent]`).
-3. **No Orchestrator Edits:** The orchestration engine automatically injects the `delegate_tasks` tool to both the orchestrator and all sub-agents. You **MUST NOT** modify `src/engine/orchestrator.py` or write custom delegation tools.
-4. **Invoke via `delegate_tasks`:** The parent sub-agent (e.g., Searcher) can call `delegate_tasks` specifying the child sub-agent's name as the `agent_id` parameter (e.g. `agent_id="Analyzer"`).
+1. **Define leaf agents first:** Define each sub-agent as a `SubAgentConfig` in `src/app.py`, starting from the deepest (leaf) agents and working up. Leaf agents have no `sub_agents` field.
+2. **Declare each agent's children:** Set `sub_agents=[...]` on each `SubAgentConfig` to specify which children that agent can delegate to (e.g. `searcher = SubAgentConfig(..., sub_agents=[analyzer])`).
+3. **Register top-level children with the builder:** Pass only the Orchestrator's direct children in the `AgentBuilder` constructor (e.g. `sub_agents=[searcher]`). Do NOT put all agents in a flat list.
+4. **No Orchestrator Edits:** The engine automatically injects `delegate_tasks` only into agents that have children. Leaf agents (empty `sub_agents`) do NOT get `delegate_tasks`. You **MUST NOT** modify `src/engine/orchestrator.py`.
+5. **Invoke via `delegate_tasks`:** The parent sub-agent (e.g., Searcher) can call `delegate_tasks` specifying the child sub-agent's name as the `agent_id` parameter (e.g. `agent_id="Analyzer"`). It can only see its own declared children.
 
 #### app.py Pattern for Multi-Tier Sub-Agents
 
-**CRITICAL: Each sub-agent gets its own unique prompt constant AND its own selective tool list.**
+**CRITICAL: Each sub-agent gets its own unique prompt constant, its own selective tool list, AND declares its own children via `sub_agents`.**
 
 - Each `SubAgentConfig` MUST reference a **separate, dedicated prompt constant** from `prompts.py` (e.g., `SEARCH_SUBAGENT_INSTRUCTIONS`, `ANALYZER_SUBAGENT_INSTRUCTIONS`). Do NOT reuse the same prompt for different sub-agent types.
 - Each `SubAgentConfig` MUST have a **selective tool list** — import individual tools and pass only the ones that sub-agent needs. Do NOT use `WORKSPACE_TOOLS` (which includes everything) for specialized sub-agents.
+- Each `SubAgentConfig` declares its own children via `sub_agents=[...]`. The engine only injects `delegate_tasks` into agents that have children. Leaf agents (empty `sub_agents`) cannot delegate — this is enforced structurally, not by prompts.
 - **Tool separation enforces the delegation hierarchy.** If a parent agent has the tools its child is supposed to use, it will never delegate. Withhold tools to force delegation.
 
 ```python
@@ -118,25 +120,29 @@ from prompts import (
 )
 
 # 1. Leaf agent (Analyzer) — file reading only, NO web, NO delegation
+#    No sub_agents = no delegate_tasks tool injected (leaf node)
 analyzer = SubAgentConfig(
     name="Analyzer",
     instructions=ANALYZER_SUBAGENT_INSTRUCTIONS,
-    tools=[read_workspace_file, grep_workspace_file, think_tool]  # selective!
+    tools=[read_workspace_file, grep_workspace_file, think_tool]
 )
 
 # 2. Middle agent (Searcher) — web only, NO file reading (forces delegation to Analyzer)
+#    sub_agents=[analyzer] = can ONLY delegate to Analyzer, nothing else
 searcher = SubAgentConfig(
     name="Searcher",
     instructions=SEARCH_SUBAGENT_INSTRUCTIONS,
-    tools=[web_search, fetch_url_to_workspace, think_tool]  # selective!
+    tools=[web_search, fetch_url_to_workspace, think_tool],
+    sub_agents=[analyzer]
 )
 
 # 3. Orchestrator — task management only, NO web, NO file reading
+#    sub_agents=[searcher] = can ONLY delegate to Searcher, cannot bypass to Analyzer
 app = AgentBuilder(
     name=config.APP_TITLE,
     instructions=ORCHESTRATOR_INSTRUCTIONS,
     tools=[write_workspace_file, list_workspace_files, write_todos, read_todos, think_tool],
-    sub_agents=[searcher, analyzer]  # flat registry — engine handles routing
+    sub_agents=[searcher]
 )
 ```
 
@@ -145,6 +151,7 @@ app = AgentBuilder(
 > - Do NOT give `WORKSPACE_TOOLS` to every sub-agent. That defeats the entire delegation architecture.
 > - Do NOT reuse the same prompt constant (e.g., `SUBAGENT_INSTRUCTIONS`) for both Searcher and Analyzer. Each agent type needs its own dedicated instructions explaining its specific role, tools, and delegation targets.
 > - Do NOT try to be clever by combining or conditionally formatting a single shared prompt for multiple agent roles. Each sub-agent type gets its own `NAME_INSTRUCTIONS` constant in `prompts.py`.
+> - Do NOT put all sub-agents in the top-level `sub_agents=[searcher, analyzer]` on `AgentBuilder`. The `sub_agents` field on each `SubAgentConfig` defines which children THAT agent can see. The Orchestrator should only see `[searcher]`, and the Searcher should only see `[analyzer]`.
 
 #### prompts.py Pattern for Multi-Tier Sub-Agents
 
