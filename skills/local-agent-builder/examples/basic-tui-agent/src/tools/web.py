@@ -2,11 +2,13 @@ import httpx
 import os
 import re
 import asyncio
+import threading
 from bs4 import BeautifulSoup
 from agent_framework import tool
 from tools.core import with_quota
 from tools.fs import _get_safe_path, _get_workspace_type, _get_workspace_dir, _IN_MEMORY_FS
 
+_ddgs_lock = threading.Lock()
 @tool
 @with_quota
 async def fetch_url_to_workspace(url: str, filename: str, convert_to_md: bool = True) -> str:
@@ -154,15 +156,20 @@ async def web_search(
 
         if provider == "duckduckgo" or provider not in ("duckduckgo", "tavily"):
             # Default/fallback: DuckDuckGo (free, no API key required)
+            # We must use a lock when initializing DDGS() because its underlying
+            # Rust HTTP client (primp) suffers from a PyO3 GIL deadlock if 
+            # instantiated concurrently across multiple Python threads.
+            with _ddgs_lock:
+                ddgs = DDGS()
             if topic == "news":
-                search_results = DDGS().news(query, max_results=max_results)
+                search_results = ddgs.news(query, max_results=max_results)
                 for result in search_results:
                     url = result.get("url", "")
                     title = result.get("title", "")
                     snippet = _sanitize_snippet(result.get("body", "No snippet available"))
                     result_texts.append(f"## {title}\n**URL:** {url}\n**Snippet:** {snippet}\n")
             else:
-                search_results = DDGS().text(query, max_results=max_results)
+                search_results = ddgs.text(query, max_results=max_results)
                 for result in search_results:
                     url = result.get("href", "")
                     title = result.get("title", "")
