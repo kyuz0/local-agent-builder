@@ -96,7 +96,9 @@ async def fetch_url_to_workspace(url: str, filename: str, convert_to_md: bool = 
             encoding = None
         
         if _get_workspace_type() == "disk":
-            os.makedirs(_get_workspace_dir(), exist_ok=True)
+            parent_dir = os.path.dirname(path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
             if encoding:
                 with open(path, mode, encoding=encoding) as f:
                     f.write(chunk)

@@ -22,10 +22,15 @@ def write_todos(todos: str) -> str:
         todos: The full todo list string with checkboxes to save.
     """
     try:
-        path = "_todos.md"
+        from tools.fs import _get_safe_path
+        path = _get_safe_path("_todos.md")
+        if not path:
+            return "Error: could not resolve path for _todos.md"
         if _get_workspace_type() == "disk":
-            os.makedirs(_get_workspace_dir(), exist_ok=True)
-            with open(os.path.join(_get_workspace_dir(), path), "w", encoding="utf-8") as f:
+            parent_dir = os.path.dirname(path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
                 f.write(todos)
         else:
             _IN_MEMORY_FS[path] = todos
