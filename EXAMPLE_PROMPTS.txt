@@ -11,28 +11,41 @@ The following are example prompts you can use to instruct a coding assistant to 
 ```text
 Using the local-agent-builder skill, build a Deep Research Agent that can perform extensive web-based research and document analysis. 
 
-Agent Architecture
+Agent Architecture — Delegation Chain & Tool Assignment
+
+DELEGATION CHAIN (strictly hierarchical, one direction only):
+  Orchestrator  →  delegates to  →  Searcher  →  delegates to  →  Analyzer
+
+TOOL ASSIGNMENT TABLE (each agent gets ONLY these tools, no exceptions):
+  Orchestrator : write_workspace_file, list_workspace_files, write_todos, read_todos, think_tool, delegate_tasks
+  Searcher     : web_search, fetch_url_to_workspace, think_tool, delegate_tasks
+  Analyzer     : read_workspace_file, grep_workspace_file, think_tool
+
+The Orchestrator has NO web tools and NO file reading tools. It delegates to Searchers.
+The Searcher has NO file reading tools. It delegates to Analyzers.
+The Analyzer has NO web tools and NO delegation capability. It reads files and returns findings.
+
+This separation is enforced by physically withholding tools in app.py, NOT by prompt instructions.
 
 1. Orchestrator Agent:
-   - Scope: Serves as the primary task manager and reporter. It breaks down the main user query into actionable research tasks and synthesizes the final report.
-   - Instructions: Creates a TODO list outlining the research phases. For each phase, it dispatches specialized Search Sub-Agents to gather information. If multiple independent research angles exist for a phase, it MUST delegate those Search Sub-Agents concurrently rather than sequentially. It must write the user's original query to query.md and produce a final final_report.md with a highly professional structure.
-   - Tooling Guidelines: Provide tools for task management and file writing (e.g., `write_todos`, `read_todos`, `write_workspace_file`, `list_workspace_files`). Do NOT give this agent `read_workspace_file` or web search capabilities.
-   - Context Protection (CRITICAL): By physically withholding `read_workspace_file` from the Orchestrator, you guarantee it cannot read massive research files and crash its context. It MUST wait for the Searchers and Analyzers to summarize the findings for it.
-   - Delegation Routing: The Orchestrator's system prompt MUST teach the LLM which sub-agents exist and when to use each one. Include a concrete `delegate_tasks` call example showing the exact `agent_id` string. Without this, the LLM will omit `agent_id` and delegation silently routes to the wrong agent. (See PROMPTING.md §8 for the pattern and double-brace rules).
+   - Scope: Primary task manager and final report writer. It plans research, dispatches Searchers, and synthesizes their returned summaries into `final_report.md`.
+   - Tools: `write_workspace_file`, `list_workspace_files`, `write_todos`, `read_todos`, `think_tool`, `delegate_tasks`. It has NO `read_workspace_file`, NO `web_search`, NO `fetch_url_to_workspace`.
+   - Instructions: Creates a TODO list, dispatches Searcher sub-agents (concurrently when independent), and writes the final report. It MUST wait for Searcher results — it cannot read downloaded files itself.
+   - Delegation: The Orchestrator delegates ONLY to the Searcher (agent_id: "Searcher"). It does NOT know about the Analyzer and MUST NOT delegate to it. The Orchestrator's system prompt MUST include a concrete `delegate_tasks` call example with `agent_id: "Searcher"`. (See PROMPTING.md §8.)
 
-2. Search Sub-Agent:
-   - Scope: Acts as the web crawler to find relevant pages and download them for deeper analysis.
-   - Instructions: Receives the specific research task from the Orchestrator. It MUST NOT hallucinate or guess URLs from its internal knowledge. The strict workflow must be:
-     1. Use `web_search` to find live, verified links.
-     2. Fetch those specific links to the local workspace via `fetch_url_to_workspace`.
-   - Delegation Routing: Same as the Orchestrator — the Searcher's prompt MUST teach the LLM the exact `agent_id` to target when delegating to child agents (e.g., Analyzers). Include a concrete example. (See PROMPTING.md §8 for the pattern).
-   - Data-Flow Integrity: After fetching a URL, the tool returns the saved filename. The Searcher's prompt MUST instruct the LLM to capture this filename and embed it in the delegation instructions for the child Analyzer. Without this, the Analyzer is dispatched blind. (See PROMPTING.md §9 for the pattern).
-   - Tooling Guidelines: ONLY give this agent web capabilities and a tool to dispatch analyzers (e.g., `web_search`, `fetch_url_to_workspace`). It MUST NOT have `read_workspace_file` or `grep_workspace_file` — withholding these tools forces delegation to the Analyzer. If the Searcher can read files itself, it will skip delegation and bloat its own context window, defeating the entire architecture.
+2. Search Sub-Agent (Searcher):
+   - Scope: Web crawler that finds and downloads pages, then delegates their analysis to Analyzers.
+   - Tools: `web_search`, `fetch_url_to_workspace`, `think_tool`, `delegate_tasks`. It has NO `read_workspace_file`, NO `grep_workspace_file`.
+   - Instructions: Receives a research task from the Orchestrator. It searches the web, fetches URLs to the workspace, captures the returned filenames, then delegates each file to an Analyzer for reading.
+   - Delegation: The Searcher delegates ONLY to the Analyzer (agent_id: "Analyzer"). Its system prompt MUST include a concrete `delegate_tasks` call example with `agent_id: "Analyzer"`. (See PROMPTING.md §8.)
+   - Data-Flow Integrity: After `fetch_url_to_workspace` returns a filename, the Searcher MUST embed that exact filename in the delegation instructions to the Analyzer. Without this, the Analyzer won't know which file to read. (See PROMPTING.md §9.)
+   - Because the Searcher has NO file reading tools, it is physically forced to delegate to the Analyzer. This is intentional — it prevents the Searcher from reading large files and blowing its own context.
 
-3. Page Analyzer Sub-Agent:
-   - Scope: Focuses exclusively on reading and extracting precise data from individual documents already downloaded to the local workspace.
-   - Instructions: Receives the original research context and the EXACT FILENAME of a specific document from the Search Sub-Agent. If the plaintext page is large, it MUST use `grep_workspace_file` to locate specific target keywords (like dates, names, or "born"). Once the relevant line numbers are identified, it can use `read_workspace_file` with precise `start_line` and `end_line` bounds to read the surrounding context efficiently. It MUST extract and surface any relevant "Read More" links, navigation menus, or references explicitly back to the Search Sub-Agent, allowing the parent Search Sub-Agent to continue diving down rabbit holes if necessary.
-   - Tooling Guidelines: Only equip this agent with local file parsing tools (e.g., `read_workspace_file`, `grep_workspace_file`). It should have zero web-fetching capabilities, ensuring it stays focused purely on reading the data already on the disk.
+3. Page Analyzer Sub-Agent (Analyzer):
+   - Scope: Reads and extracts data from individual documents already downloaded to the workspace.
+   - Tools: `read_workspace_file`, `grep_workspace_file`, `think_tool`. It has NO `web_search`, NO `fetch_url_to_workspace`, NO `delegate_tasks`.
+   - Instructions: Receives the exact filename and research context from the Searcher. Uses `grep_workspace_file` to locate keywords, then `read_workspace_file` with precise line ranges. Returns a concise summary of findings and any relevant links back to the Searcher.
+   - The Analyzer is a leaf node — it cannot delegate further and cannot fetch new URLs.
 
 Operational Requirements
 - Strict Directory Path Management: The application code MUST handle directory isolation automatically:
@@ -52,13 +65,14 @@ Operational Requirements
    - Semi-authoritative sources (established tech publications): one source is usually sufficient, but a second is welcome if readily available.
    - Informal sources (forums, blogs, wikis): corroborate with at least one additional source before trusting the data.
    For simple factual queries, if the first web search returns a clear answer from an authoritative source, fetch that ONE page, delegate analysis, and stop. Do not run additional searches.
-- Adaptive Reporting: Instruct the Orchestrator to dynamically determine the `final_report.md` template structure (simple list vs. complex sections like Methodology/Sources) based strictly on the complexity of the original user query. 
+- Adaptive Reporting: Instruct the Orchestrator to dynamically determine the `final_report.md` template structure (simple list vs. complex sections like Methodology/Sources) based strictly on the complexity of the original user query.
 - Configurable Quotas: Every single tool across all agents (including sub-agent delegations) MUST be heavily restricted with quotas in the config.yaml to prevent infinite web-scraping recursion.
 
 CRITICAL ANTI-PATTERNS TO AVOID:
-1. DO NOT give a parent agent the tools that its child agent is supposed to use. If the Searcher can `read_workspace_file`, it will never delegate to the Analyzer.
-2. DO NOT omit `agent_id` from delegation calls. Without explicit routing, delegation defaults to the first registered sub-agent (index 0), which is likely the wrong agent.
-3. DO NOT assume files exist before they are fetched. The Analyzer can only read files that the Searcher has already downloaded. The Searcher's prompt MUST instruct it to capture the filename from the fetch tool's response and pass it to the Analyzer.
+1. DO NOT give a parent agent the tools that its child agent is supposed to use. If the Searcher can `read_workspace_file`, it will never delegate to the Analyzer. If the Orchestrator has `web_search`, it will never delegate to the Searcher.
+2. DO NOT let the Orchestrator delegate directly to the Analyzer. The Orchestrator only knows about the Searcher. The Searcher only knows about the Analyzer. This is a strict chain.
+3. DO NOT omit `agent_id` from delegation calls. Without explicit routing, delegation defaults to the first registered sub-agent (index 0), which is likely the wrong agent.
+4. DO NOT assume files exist before they are fetched. The Analyzer can only read files that the Searcher has already downloaded. The Searcher's prompt MUST instruct it to capture the filename from the fetch tool's response and pass it to the Analyzer.
 ```
 
 ---
