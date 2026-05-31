@@ -3,6 +3,7 @@
 workspace
 venv
 agent-framework
+research/
 
 # Python packaging/builds
 *.egg-info/

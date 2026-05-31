@@ -30,14 +30,16 @@ your-main-project/  <-- (This is the copied examples/basic-tui-agent/ folder)
 │   ├── engine/           # Internal generic event and orchestrator loops
 │   ├── prompts.py        # Long multi-line instruction strings
 │   ├── utils/            # Optional helpers to prune if unneeded
-│   │   └── parsers.py    # `markitdown` and `liteparse` conversion scripts
+│   │   ├── parsers.py    # `markitdown` and `liteparse` conversion scripts
+│   │   └── vectorstore.py # RAG vector store (sqlite-vec, semchunk). Delete if not using RAG.
 │   └── tools/            # Agent tools grouped by logical domain
-│       ├── __init__.py     # Aggregates and exports WORKSPACE_TOOLS
+│       ├── __init__.py     # Aggregates and exports WORKSPACE_TOOLS + RAG_TOOLS
 │       ├── core.py         # Core quota logic
 │       ├── fs.py           # File system tools
 │       ├── web.py          # Web fetch tools (uses `utils/parsers.py`)
 │       ├── todos.py        # Workflow tools
-│       └── meta.py         # Cognitive constraints
+│       ├── meta.py         # Cognitive constraints
+│       └── rag.py          # RAG tools (semantic_search, keyword_search). Delete if not using RAG.
 └── docs/                 # Included local data
 ```
 

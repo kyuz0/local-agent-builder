@@ -12,6 +12,13 @@ from tools.web import fetch_url_to_workspace, web_search
 from tools.todos import write_todos, read_todos
 from tools.meta import think_tool
 from tools.shell import run_shell_command
+from tools.rag import (
+    semantic_search,
+    keyword_search,
+    list_library_files,
+    read_library_file,
+    init_rag_tools
+)
 
 # -------------------------------------------------------------
 # [!CAUTION] RULES FOR LLM CODING ASSISTANTS EDITING THIS:
@@ -34,10 +41,20 @@ WORKSPACE_TOOLS = [
     run_shell_command
 ]
 
+# RAG tools for document corpus search. Remove if your project does not use RAG.
+RAG_TOOLS = [
+    semantic_search,
+    keyword_search,
+    list_library_files,
+    read_library_file
+]
+
 __all__ = [
     "tool_quotas_ctx",
     "with_quota",
     "WORKSPACE_TOOLS",
+    "RAG_TOOLS",
+    "init_rag_tools",
     # Individual tools (import these in app.py for selective per-agent tool assignment)
     "read_workspace_file",
     "write_workspace_file",
@@ -50,6 +67,11 @@ __all__ = [
     "read_todos",
     "think_tool",
     "run_shell_command",
+    # RAG tools (remove if not using RAG)
+    "semantic_search",
+    "keyword_search",
+    "list_library_files",
+    "read_library_file",
     # TUI helpers (not agent tools)
     "get_workspace_files",
     "get_workspace_file_content",

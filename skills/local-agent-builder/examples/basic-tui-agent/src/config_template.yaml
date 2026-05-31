@@ -1,6 +1,10 @@
 api:
   openai_base_url: http://localhost:8080/v1
   openai_model: local-model
+  # Embedding endpoint for RAG vector search. Defaults to same as LLM endpoint.
+  # Remove these lines if your project does not use RAG.
+  embedding_base_url: http://localhost:8080/v1
+  embedding_model: local-model
 settings:
   enable_thinking: false
   concurrency:
@@ -22,12 +26,27 @@ settings:
       limit: 50
       rules:
         max_matches: 10
+    # RAG tool quotas — remove these if your project does not use RAG.
+    semantic_search: 20
+    keyword_search: 20
+    list_library_files: 10
+    read_library_file:
+      limit: 50
+      rules:
+        max_lines: 500
   enable_conversational_memory: true
   enable_session_persistence: true
   workspace:
     type: memory
     dir: "~/.{APP_NAME}/workspace"
     session_isolation: false  # Set to true to auto-create timestamped run folders (e.g. run_1748192400/)
+  # RAG configuration — remove this block if your project does not use RAG.
+  rag:
+    enabled: false                           # Toggle RAG features on/off
+    library_dir: "~/.{APP_NAME}/libraries"   # Directory containing documents to index
+    chunk_size: 1000                         # Characters per chunk (semchunk)
+    chunk_overlap: 150                       # Overlap between chunks
+    search_results: 5                        # Default k for semantic search
   permissions:
     run_shell_command: require_approval
     remove_workspace_file: require_approval
