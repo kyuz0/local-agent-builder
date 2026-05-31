@@ -1214,9 +1214,23 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_
             return
             
         for content in update.contents:
-            log_stream_content(agent_name, "content", {"type": content.type})
-            if content.type == "function_call" and content.call_id:
-                sys.stdout.write(f"\n\033[93m[{agent_name}] Calling {content.name}...\033[0m\n")
+            if content.type == "text" and content.text:
+                log_stream_content(agent_name, "text", {"text": content.text})
+            elif content.type == "function_call":
+                call_id = getattr(content, "call_id", None)
+                name = getattr(content, "name", None)
+                arguments = getattr(content, "arguments", "") or ""
+                log_stream_content(agent_name, "function_call", {
+                    "call_id": call_id, "name": name, "arguments": arguments
+                })
+                if call_id:
+                    sys.stdout.write(f"\n\033[93m[{agent_name}] Calling {name}...\033[0m\n")
+            elif content.type == "function_result":
+                call_id = getattr(content, "call_id", None)
+                result = getattr(content, "result", "")
+                log_stream_content(agent_name, "function_result", {
+                    "call_id": call_id, "result": str(result)
+                })
 
     session_data = None
     if session_id:
@@ -1314,8 +1328,21 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_
                         log_stream_content("Agent", "text", {"text": content.text})
                         sys.stdout.write(content.text)
                         sys.stdout.flush()
-                    elif content.type == "function_call" and content.call_id:
-                        sys.stdout.write(f"\n\033[96m[Agent] Calling {content.name}...\033[0m\n")
+                    elif content.type == "function_call":
+                        call_id = getattr(content, "call_id", None)
+                        name = getattr(content, "name", None)
+                        arguments = getattr(content, "arguments", "") or ""
+                        log_stream_content("Agent", "function_call", {
+                            "call_id": call_id, "name": name, "arguments": arguments
+                        })
+                        if call_id:
+                            sys.stdout.write(f"\n\033[96m[Agent] Calling {name}...\033[0m\n")
+                    elif content.type == "function_result":
+                        call_id = getattr(content, "call_id", None)
+                        result = getattr(content, "result", "")
+                        log_stream_content("Agent", "function_result", {
+                            "call_id": call_id, "result": str(result)
+                        })
                 if getattr(update, "user_input_requests", None):
                     user_input_requests.extend(update.user_input_requests)
                     
