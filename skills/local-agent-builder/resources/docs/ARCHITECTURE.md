@@ -100,6 +100,65 @@ To configure nested sub-agents:
 3. **No Orchestrator Edits:** The orchestration engine automatically injects the `delegate_tasks` tool to both the orchestrator and all sub-agents. You **MUST NOT** modify `src/engine/orchestrator.py` or write custom delegation tools.
 4. **Invoke via `delegate_tasks`:** The parent sub-agent (e.g., Searcher) can call `delegate_tasks` specifying the child sub-agent's name as the `agent_id` parameter (e.g. `agent_id="Analyzer"`).
 
+#### app.py Pattern for Multi-Tier Sub-Agents
+
+**CRITICAL: Each sub-agent gets its own unique prompt constant AND its own selective tool list.**
+
+- Each `SubAgentConfig` MUST reference a **separate, dedicated prompt constant** from `prompts.py` (e.g., `SEARCH_SUBAGENT_INSTRUCTIONS`, `ANALYZER_SUBAGENT_INSTRUCTIONS`). Do NOT reuse the same prompt for different sub-agent types.
+- Each `SubAgentConfig` MUST have a **selective tool list** — import individual tools and pass only the ones that sub-agent needs. Do NOT use `WORKSPACE_TOOLS` (which includes everything) for specialized sub-agents.
+- **Tool separation enforces the delegation hierarchy.** If a parent agent has the tools its child is supposed to use, it will never delegate. Withhold tools to force delegation.
+
+```python
+# src/app.py — CORRECT multi-tier pattern
+from prompts import (
+    ORCHESTRATOR_INSTRUCTIONS,
+    SEARCH_SUBAGENT_INSTRUCTIONS,      # Dedicated prompt for Searcher
+    ANALYZER_SUBAGENT_INSTRUCTIONS,    # Dedicated prompt for Analyzer
+    SUBAGENT_DELEGATION_INSTRUCTIONS,
+)
+
+# 1. Leaf agent (Analyzer) — file reading only, NO web, NO delegation
+analyzer = SubAgentConfig(
+    name="Analyzer",
+    instructions=ANALYZER_SUBAGENT_INSTRUCTIONS,
+    tools=[read_workspace_file, grep_workspace_file, think_tool]  # selective!
+)
+
+# 2. Middle agent (Searcher) — web only, NO file reading (forces delegation to Analyzer)
+searcher = SubAgentConfig(
+    name="Searcher",
+    instructions=SEARCH_SUBAGENT_INSTRUCTIONS,
+    tools=[web_search, fetch_url_to_workspace, think_tool]  # selective!
+)
+
+# 3. Orchestrator — task management only, NO web, NO file reading
+app = AgentBuilder(
+    name=config.APP_TITLE,
+    instructions=ORCHESTRATOR_INSTRUCTIONS,
+    tools=[write_workspace_file, list_workspace_files, write_todos, read_todos, think_tool],
+    sub_agents=[searcher, analyzer]  # flat registry — engine handles routing
+)
+```
+
+> [!CAUTION]
+> **ANTI-PATTERNS:**
+> - Do NOT give `WORKSPACE_TOOLS` to every sub-agent. That defeats the entire delegation architecture.
+> - Do NOT reuse the same prompt constant (e.g., `SUBAGENT_INSTRUCTIONS`) for both Searcher and Analyzer. Each agent type needs its own dedicated instructions explaining its specific role, tools, and delegation targets.
+> - Do NOT try to be clever by combining or conditionally formatting a single shared prompt for multiple agent roles. Each sub-agent type gets its own `NAME_INSTRUCTIONS` constant in `prompts.py`.
+
+#### prompts.py Pattern for Multi-Tier Sub-Agents
+
+Each sub-agent type MUST have its own dedicated prompt constant. Name them clearly: `SEARCH_SUBAGENT_INSTRUCTIONS`, `ANALYZER_SUBAGENT_INSTRUCTIONS`, etc.
+
+Keep backward compatibility aliases at the bottom of `prompts.py` to prevent `ImportError` crashes in the engine:
+
+```python
+# src/prompts.py — at the bottom, after all prompt constants
+# Backward compatibility aliases (engine may import these names)
+SUBAGENT_INSTRUCTIONS = SEARCH_SUBAGENT_INSTRUCTIONS
+```
+
+
 ## 3. Strict Workflow DAGs (Deterministic Pipelines)
 
 Sometimes conversational orchestration introduces too much unpredictability. If an operation has strong, sequential sub-steps (e.g., "Process Step A, then pass to Step B"), use Agent Framework's `.add_edge()` pipeline. 
