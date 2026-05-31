@@ -18,6 +18,10 @@ def get_ddgs_client():
         if _ddgs_client is None:
             from ddgs import DDGS
             _ddgs_client = DDGS()
+            # Pre-warm the internal engine cache to prevent PyO3 deadlocks 
+            # when multiple threads initialize primp.Client concurrently later.
+            _ddgs_client._get_engines("text", "auto")
+            _ddgs_client._get_engines("news", "auto")
     return _ddgs_client
 
 @tool
