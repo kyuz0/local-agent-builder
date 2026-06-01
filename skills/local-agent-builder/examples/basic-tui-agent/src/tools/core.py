@@ -6,11 +6,18 @@ import asyncio
 # Protects local LLM workflows from infinite retry loops (e.g., repeatedly failing to parse a URL)
 tool_quotas_ctx = contextvars.ContextVar('tool_quotas', default=None)
 
+class QuotaAbortException(BaseException):
+    """Raised when a tool is called repeatedly despite being over quota, indicating an LLM loop."""
+    pass
+
 def check_quota(tool_name: str) -> str | None:
     """Check if the specific tool has exceeded its per-invocation quota."""
     ctx = tool_quotas_ctx.get()
     if ctx and tool_name in ctx:
         if ctx[tool_name]["used"] >= ctx[tool_name]["limit"]:
+            ctx[tool_name]["used"] += 1
+            if ctx[tool_name]["used"] > ctx[tool_name]["limit"] + 3:
+                raise QuotaAbortException(f"Agent trapped in loop. Quota exceeded multiple times for {tool_name}.")
             return (
                 f"Error: Quota reached. You have used the '{tool_name}' tool "
                 f"{ctx[tool_name]['limit']} times out of your limit. "

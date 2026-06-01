@@ -1,4 +1,4 @@
-from tools.core import tool_quotas_ctx, with_quota
+from tools.core import tool_quotas_ctx, with_quota, QuotaAbortException
 from tools.fs import (
     get_workspace_files,
     get_workspace_file_content,
@@ -52,6 +52,7 @@ RAG_TOOLS = [
 __all__ = [
     "tool_quotas_ctx",
     "with_quota",
+    "QuotaAbortException",
     "WORKSPACE_TOOLS",
     "RAG_TOOLS",
     "init_rag_tools",

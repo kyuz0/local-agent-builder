@@ -3,7 +3,7 @@ import asyncio
 import re
 from agent_framework.openai import OpenAIChatCompletionClient
 from agent_framework import tool, AgentSession
-from tools import WORKSPACE_TOOLS, tool_quotas_ctx, with_quota, think_tool
+from tools import WORKSPACE_TOOLS, tool_quotas_ctx, with_quota, think_tool, QuotaAbortException
 from prompts import ORCHESTRATOR_INSTRUCTIONS, SUBAGENT_INSTRUCTIONS, SUBAGENT_DELEGATION_INSTRUCTIONS
 import datetime
 import config
@@ -162,16 +162,19 @@ def create_local_agent(builder, subagent_callback=None, session_data=None):
                     has_requests = False
                     user_input_requests = []
                     
-                    stream = sub_agent.run(current_input, stream=True)
-                    async for update in stream:
-                        if subagent_callback:
-                            await subagent_callback(update, is_subagent=True, agent_name=f"SubAgent_{task_name}")
-                        for c in update.contents:
-                            if c.type == "text" and c.text:
-                                final_text += c.text
-                                
-                        if getattr(update, "user_input_requests", None):
-                            user_input_requests.extend(update.user_input_requests)
+                    try:
+                        stream = sub_agent.run(current_input, stream=True)
+                        async for update in stream:
+                            if subagent_callback:
+                                await subagent_callback(update, is_subagent=True, agent_name=f"SubAgent_{task_name}")
+                            for c in update.contents:
+                                if c.type == "text" and c.text:
+                                    final_text += c.text
+                                    
+                            if getattr(update, "user_input_requests", None):
+                                user_input_requests.extend(update.user_input_requests)
+                    except QuotaAbortException as e:
+                        return f"## Error for {task_name}\nTask forcefully aborted: {str(e)}\n---"
                             
                     if user_input_requests:
                         has_requests = True

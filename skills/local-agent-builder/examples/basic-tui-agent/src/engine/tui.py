@@ -1322,30 +1322,37 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_
             has_requests = False
             user_input_requests = []
             
-            stream = agent.run(current_input, session=session, stream=True)
-            async for update in stream:
-                for content in update.contents:
-                    if content.type == "text" and content.text:
-                        log_stream_content("Agent", "text", {"text": content.text})
-                        sys.stdout.write(content.text)
-                        sys.stdout.flush()
-                    elif content.type == "function_call":
-                        call_id = getattr(content, "call_id", None)
-                        name = getattr(content, "name", None)
-                        arguments = getattr(content, "arguments", "") or ""
-                        log_stream_content("Agent", "function_call", {
-                            "call_id": call_id, "name": name, "arguments": arguments
-                        })
-                        if call_id:
-                            sys.stdout.write(f"\n\033[96m[Agent] Calling {name}...\033[0m\n")
-                    elif content.type == "function_result":
-                        call_id = getattr(content, "call_id", None)
-                        result = getattr(content, "result", "")
-                        log_stream_content("Agent", "function_result", {
-                            "call_id": call_id, "result": str(result)
-                        })
-                if getattr(update, "user_input_requests", None):
-                    user_input_requests.extend(update.user_input_requests)
+            try:
+                stream = agent.run(current_input, session=session, stream=True)
+                async for update in stream:
+                    for content in update.contents:
+                        if content.type == "text" and content.text:
+                            log_stream_content("Agent", "text", {"text": content.text})
+                            sys.stdout.write(content.text)
+                            sys.stdout.flush()
+                        elif content.type == "function_call":
+                            call_id = getattr(content, "call_id", None)
+                            name = getattr(content, "name", None)
+                            arguments = getattr(content, "arguments", "") or ""
+                            log_stream_content("Agent", "function_call", {
+                                "call_id": call_id, "name": name, "arguments": arguments
+                            })
+                            if call_id:
+                                sys.stdout.write(f"\n\033[96m[Agent] Calling {name}...\033[0m\n")
+                        elif content.type == "function_result":
+                            call_id = getattr(content, "call_id", None)
+                            result = getattr(content, "result", "")
+                            log_stream_content("Agent", "function_result", {
+                                "call_id": call_id, "result": str(result)
+                            })
+                    if getattr(update, "user_input_requests", None):
+                        user_input_requests.extend(update.user_input_requests)
+            except BaseException as e:
+                from tools import QuotaAbortException
+                if isinstance(e, QuotaAbortException) or type(e).__name__ == "QuotaAbortException":
+                    sys.stdout.write(f"\n\033[91m[System] Task forcefully aborted: {str(e)}\033[0m\n")
+                    break
+                raise
                     
             if user_input_requests:
                 has_requests = True
