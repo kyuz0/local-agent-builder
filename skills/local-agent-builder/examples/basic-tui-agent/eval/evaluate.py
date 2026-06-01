@@ -194,7 +194,7 @@ def score_regex(output: str, criteria: list[dict]) -> float:
     return round(earned / total, 3) if total > 0 else 0.0
 
 
-def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dict, judge_timeout: int = 120) -> float:
+def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dict, judge_timeout: int = 600) -> float:
     """
     LLM-as-judge scoring. Sends (query, criteria, output) to a judge LLM.
     Returns a float between 0.0 and 1.0.
@@ -281,7 +281,7 @@ def score_llm_judge(query: str, output: str, criteria: list[dict], eval_cfg: dic
 
 
 def evaluate_item(query: str, output: str, criteria: list[dict],
-                  eval_type: str, eval_cfg: dict, judge_timeout: int = 120) -> float:
+                  eval_type: str, eval_cfg: dict, judge_timeout: int = 600) -> float:
     """Dispatch to the configured evaluation strategy."""
     if eval_type == "contains":
         return score_contains(output, criteria)
@@ -324,7 +324,7 @@ def main() -> None:
     parser.add_argument("--model",         default=None,  help="Model name for metadata (auto-detected if omitted)")
     parser.add_argument("--hardware",      default="unknown", help="Hardware tag for metadata")
     parser.add_argument("--timeout",       type=int, default=1200, help="Agent subprocess timeout in seconds (default: 1200)")
-    parser.add_argument("--judge-timeout", type=int, default=120,  help="LLM judge HTTP request timeout in seconds (default: 120)")
+    parser.add_argument("--judge-timeout", type=int, default=600,  help="LLM judge HTTP request timeout in seconds (default: 600)")
     args = parser.parse_args()
 
     eval_cfg = load_eval_config(args.eval_config)
