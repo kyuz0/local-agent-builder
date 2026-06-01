@@ -231,7 +231,17 @@ python src/app.py --prompt "Analyze the provided log files and output a markdown
 ```
 This is fully baked into the `AgentBuilder.start()` execution loop inherited from `src/engine/tui.py`.
 
-### 7.1 Global Auto-Approvals for Automations
+### 7.1 Required Artifact Enforcement
+When running in headless mode, you can optionally enforce that the agent produces a specific file before terminating. If the agent attempts to complete the task without creating this file, the engine will intercept the exit, inject a warning prompt, and push the agent to continue.
+To enable this, set `required_artifact` in `config.yaml`:
+```yaml
+settings:
+  workspace:
+    required_artifact: "final_report.md"
+```
+This check triggers exactly once per session to avoid infinite loops.
+
+### 7.2 Global Auto-Approvals for Automations
 Headless scripts will naturally halt and silently fail if an agent attempts to execute an `always_require` Human-in-the-Loop tool without an interactive UI attached.
 
 For full pipeline automation unbothered by these explicit constraints, you **MUST** provide the `--auto-approve` argument. You can deploy this global flag universally across both Headless batch systems and Textual TUI contexts to dynamically bypass all widget suspensions.
@@ -239,7 +249,7 @@ For full pipeline automation unbothered by these explicit constraints, you **MUS
 python src/app.py --prompt "Delete all unneeded files in the scratch directory" --auto-approve
 ```
 
-### 7.2 Background Mailbox Daemon Integration (Stage 2 Add-on)
+### 7.3 Background Mailbox Daemon Integration (Stage 2 Add-on)
 Agents can optionally be wrapped into a background email-driven workflow where a dedicated process polls an inbox, injects emails into the agent via `--prompt-file`, and replies with the output.
 **Rule: This is a Stage 2 workflow. If a user asks you to integrate an agent with email or run it as a background service answering messages, you MUST read and implement the rules specifically found in [`MAILBOX.md`](./MAILBOX.md) and deploy the optional `mailbox-daemon-addon` scaffold.** Do not attempt to embed email IMAP/SMTP protocols into `app.py` or the agent's tools directly.
 

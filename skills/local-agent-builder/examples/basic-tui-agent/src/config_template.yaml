@@ -40,6 +40,7 @@ settings:
     type: memory
     dir: "~/.{APP_NAME}/workspace"
     session_isolation: false  # Set to true to auto-create timestamped run folders (e.g. run_1748192400/)
+    required_artifact: null   # Enforce the creation of this file (e.g. "final_report.md") before exiting in headless mode
   # RAG configuration — remove this block if your project does not use RAG.
   rag:
     enabled: false                           # Toggle RAG features on/off

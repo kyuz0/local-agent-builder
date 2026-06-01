@@ -1316,6 +1316,7 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_
         from agent_framework import Message
         current_input = prompt
         has_requests = True
+        enforced_artifact_check = False
         
         while has_requests:
             has_requests = False
@@ -1357,6 +1358,29 @@ async def run_cli(builder, prompt: str = None, prompt_file: str = None, session_
                         sys.stdout.write(f"\n\033[91m[Agent] Denied {req.function_call.name} (Auto-approve disabled).\033[0m\n")
                     new_inputs.append(Message("user", [req.to_function_approval_response(is_approved)]))
                 current_input = new_inputs
+                
+            if not has_requests and not enforced_artifact_check:
+                req_artifact = config.cfg.get("settings", {}).get("workspace", {}).get("required_artifact", None)
+                if req_artifact:
+                    from tools.fs import get_workspace_files
+                    try:
+                        # get_workspace_files returns a list of filenames
+                        files = get_workspace_files()
+                        if req_artifact not in files:
+                            has_requests = True
+                            enforced_artifact_check = True
+                            
+                            warning_msg = f"\n\033[91m[System] WARNING: Required artifact '{req_artifact}' is missing from the workspace. Pushing agent to create it.\033[0m\n"
+                            sys.stdout.write(warning_msg)
+                            log_stream_content("Agent", "text", {"text": warning_msg})
+                            
+                            inject_msg = f"SYSTEM WARNING: You are attempting to finish the task, but the required final artifact '{req_artifact}' is missing from the workspace. You MUST create this file to successfully complete the task."
+                            
+                            new_inputs = [current_input] if isinstance(current_input, str) else list(current_input)
+                            new_inputs.append(Message("user", [{"type": "text", "text": inject_msg}]))
+                            current_input = new_inputs
+                    except Exception as e:
+                        pass
                 
         _write_log()
         elapsed = datetime.now() - start_time
