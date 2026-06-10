@@ -44,7 +44,12 @@ def get_workspace_files() -> List[str]:
         if session_dir:
             d = os.path.join(d, session_dir)
         if not os.path.isdir(d): return []
-        return [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
+        res = []
+        for root, _, files in os.walk(d):
+            for f in files:
+                rel = os.path.relpath(os.path.join(root, f), d)
+                res.append(rel.replace("\\", "/"))
+        return res
         
     if session_dir:
         prefix = session_dir + "/"
@@ -57,8 +62,11 @@ def get_workspace_file_content(filename: str) -> str | None:
     if not path: return None
     if _get_workspace_type() == "disk":
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception:
+                return None
         return None
     return _IN_MEMORY_FS.get(path)
 
